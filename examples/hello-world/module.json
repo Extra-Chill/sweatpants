@@ -1,0 +1,23 @@
+{
+  "id": "hello-world",
+  "name": "Hello World",
+  "version": "1.0.0",
+  "description": "A simple example module that demonstrates the Sweatpants SDK",
+  "entrypoint": "main.py",
+  "inputs": [
+    {
+      "id": "name",
+      "type": "text",
+      "required": true,
+      "description": "Name to greet"
+    },
+    {
+      "id": "count",
+      "type": "integer",
+      "default": 3,
+      "description": "Number of times to greet"
+    }
+  ],
+  "settings": [],
+  "capabilities": []
+}
