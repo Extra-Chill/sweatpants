@@ -2,6 +2,16 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.2.1] - 2026-01-30
+
+### Changed
+- Add SSL verification bypass for Bright Data proxy and initial test suite
+- Add build script for homeboy integration
+
+### Fixed
+- Fix session ID format - use hex UUID without dashes for Bright Data compatibility
+- Fix proxy module exports and sync version in __init__.py
+
 ## [0.2.0] - 2026-01-30
 
 ### Changed
