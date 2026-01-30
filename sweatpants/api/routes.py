@@ -19,6 +19,7 @@ class JobCreateRequest(BaseModel):
     module_id: str
     inputs: dict[str, Any] = {}
     settings: dict[str, Any] = {}
+    max_duration: Optional[str] = None
 
 
 class ModuleInstallRequest(BaseModel):
@@ -88,6 +89,7 @@ async def create_job(request: JobCreateRequest) -> dict:
             module_id=request.module_id,
             inputs=request.inputs,
             settings=request.settings,
+            max_duration=request.max_duration,
         )
         return {"id": job_id, "status": "pending"}
     except ValueError as e:

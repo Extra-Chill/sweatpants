@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional
 
 from sweatpants.engine.module_loader import ModuleLoader
 from sweatpants.engine.state import StateManager
+from sweatpants.utils import parse_duration
 
 
 class JobContext:
@@ -56,6 +57,7 @@ class JobScheduler:
         self._running_jobs: dict[str, asyncio.Task] = {}
         self._job_contexts: dict[str, JobContext] = {}
         self._log_subscribers: dict[str, list[asyncio.Queue]] = {}
+        self._watchdogs: dict[str, asyncio.Task] = {}
         self._started_at: datetime = datetime.now(timezone.utc)
 
     @property
@@ -106,8 +108,17 @@ class JobScheduler:
         inputs: dict[str, Any],
         settings: Optional[dict[str, Any]] = None,
         checkpoint: Optional[dict[str, Any]] = None,
+        max_duration: Optional[str] = None,
     ) -> str:
-        """Start a new job."""
+        """Start a new job.
+
+        Args:
+            module_id: The module to run
+            inputs: Input parameters for the module
+            settings: Optional module settings
+            checkpoint: Optional checkpoint to resume from
+            max_duration: Optional duration limit (e.g., '1h', '24h', '7d')
+        """
         module_info = await self.module_loader.get(module_id)
         if not module_info:
             raise ValueError(f"Module not found: {module_id}")
@@ -130,6 +141,13 @@ class JobScheduler:
         )
         self._running_jobs[job_id] = task
 
+        if max_duration:
+            timeout_seconds = parse_duration(max_duration)
+            watchdog = asyncio.create_task(
+                self._duration_watchdog(job_id, context, timeout_seconds, max_duration)
+            )
+            self._watchdogs[job_id] = watchdog
+
         return job_id
 
     async def resume_job(
@@ -139,6 +157,7 @@ class JobScheduler:
         inputs: dict[str, Any],
         settings: dict[str, Any],
         checkpoint: Optional[dict[str, Any]],
+        max_duration: Optional[str] = None,
     ) -> None:
         """Resume a previously running job."""
         context = JobContext(
@@ -152,6 +171,28 @@ class JobScheduler:
             self._run_job(job_id, module_id, inputs, settings, checkpoint, context)
         )
         self._running_jobs[job_id] = task
+
+        if max_duration:
+            timeout_seconds = parse_duration(max_duration)
+            watchdog = asyncio.create_task(
+                self._duration_watchdog(job_id, context, timeout_seconds, max_duration)
+            )
+            self._watchdogs[job_id] = watchdog
+
+    async def _duration_watchdog(
+        self,
+        job_id: str,
+        context: JobContext,
+        timeout_seconds: int,
+        duration_str: str,
+    ) -> None:
+        """Cancel job after duration limit reached."""
+        try:
+            await asyncio.sleep(timeout_seconds)
+            await context.log(f"Duration limit reached ({duration_str}) - stopping job")
+            context.cancel()
+        except asyncio.CancelledError:
+            pass
 
     async def _run_job(
         self,
@@ -202,6 +243,9 @@ class JobScheduler:
             del self._running_jobs[job_id]
         if job_id in self._job_contexts:
             del self._job_contexts[job_id]
+        if job_id in self._watchdogs:
+            self._watchdogs[job_id].cancel()
+            del self._watchdogs[job_id]
 
     async def stop_job(self, job_id: str) -> bool:
         """Stop a running job."""

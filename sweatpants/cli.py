@@ -95,6 +95,9 @@ def run(
     inputs: Optional[list[str]] = typer.Option(
         None, "--input", "-i", help="Input values as key=value pairs"
     ),
+    duration: Optional[str] = typer.Option(
+        None, "--duration", "-d", help="Auto-stop after duration (e.g., 30m, 2h, 24h, 7d)"
+    ),
 ) -> None:
     """Start a job with the specified module."""
     import httpx
@@ -109,10 +112,14 @@ def run(
                 key, value = item.split("=", 1)
                 input_data[key] = value
 
+    request_body = {"module_id": module_id, "inputs": input_data}
+    if duration:
+        request_body["max_duration"] = duration
+
     try:
         response = httpx.post(
             f"{url}/jobs",
-            json={"module_id": module_id, "inputs": input_data},
+            json=request_body,
             timeout=10.0,
         )
         response.raise_for_status()
@@ -121,6 +128,8 @@ def run(
         console.print(f"[green]Job started:[/green] {data['id']}")
         console.print(f"Module: {module_id}")
         console.print(f"Status: {data['status']}")
+        if duration:
+            console.print(f"Duration limit: {duration}")
         console.print(f"\nView logs: sweatpants logs {data['id'][:8]}")
 
     except httpx.ConnectError:
