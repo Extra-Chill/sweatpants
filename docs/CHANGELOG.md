@@ -2,7 +2,15 @@
 
 All notable changes to Sweatpants are documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-01-30
+
+### Changed
+- Integrate Bright Data proxy with IP rotation and geo-targeting
+- Add --duration flag for timed job execution
+- updated readme, set up changelog for initial release
+- Add MIT License to the project
+- Link to Homeboy repo in README
+- Initial commit: Sweatpants automation engine
 
 ## [0.1.0] - 2026-01-30
 
