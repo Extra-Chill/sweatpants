@@ -50,7 +50,7 @@ def build_proxy_url(
 
     params = []
 
-    effective_session = session_id if session_id else str(uuid.uuid4())
+    effective_session = session_id if session_id else uuid.uuid4().hex
     params.append(f"session-{effective_session}")
 
     if geo:
