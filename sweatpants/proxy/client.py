@@ -128,5 +128,6 @@ async def proxied_request(
         proxy=proxy_url,
         timeout=httpx.Timeout(timeout or 30.0),
         follow_redirects=True,
+        verify=False,  # Bright Data proxy uses self-signed certificates
     ) as client:
         return await client.request(method, url, **kwargs)
