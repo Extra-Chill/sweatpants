@@ -4,7 +4,7 @@ Server-side automation engine for long-running tasks.
 
 ## Overview
 
-Sweatpants is the work plane counterpart to Homeboy. While Homeboy (Rust, local) handles orchestration and developer interface, Sweatpants (Python, server) executes automation tasks.
+Sweatpants is the work plane counterpart to [Homeboy](https://github.com/Extra-Chill/homeboy). While Homeboy (Rust, local) handles orchestration and developer interface, Sweatpants (Python, server) executes automation tasks.
 
 ## Installation
 
