@@ -101,8 +101,9 @@ class MyModule(Module):
 - Results and logs stored per-job
 
 ### Proxy Integration
-- Connects to rotating-proxy-service at `http://127.0.0.1:8421`
+- Direct Bright Data proxy integration (no external service dependency)
 - All HTTP requests and browser sessions route through proxy
+- Service fails to start if proxy credentials not configured
 
 ### Browser Pool
 - Playwright Chromium with pool management
@@ -125,7 +126,11 @@ All prefixed with `SWEATPANTS_`:
 | DB_PATH | /var/lib/sweatpants/sweatpants.db | SQLite database |
 | API_HOST | 127.0.0.1 | API bind host |
 | API_PORT | 8420 | API port |
-| PROXY_SERVICE_URL | http://127.0.0.1:8421 | Rotating proxy |
+| API_AUTH_TOKEN | (empty) | API authentication token |
+| BRIGHTDATA_USERNAME | (required) | Bright Data proxy username |
+| BRIGHTDATA_PASSWORD | (required) | Bright Data proxy password |
+| BRIGHTDATA_HOST | brd.superproxy.io | Bright Data proxy host |
+| BRIGHTDATA_PORT | 22225 | Bright Data proxy port |
 | BROWSER_POOL_SIZE | 3 | Browser instances |
 | BROWSER_RESTART_HOURS | 4 | Browser lifecycle |
 
@@ -134,5 +139,4 @@ All prefixed with `SWEATPANTS_`:
 | Repo | Purpose |
 |------|---------|
 | Extra-Chill/sweatpants | This repo - core engine |
-| Extra-Chill/rotating-proxy-service | Shared proxy infrastructure |
 | Extra-Chill/sweatpants-modules-private | Private automation modules |

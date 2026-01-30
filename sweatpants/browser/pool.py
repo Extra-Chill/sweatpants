@@ -1,6 +1,7 @@
 """Browser pool management with Playwright."""
 
 import asyncio
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncIterator, Optional
@@ -8,7 +9,7 @@ from typing import AsyncIterator, Optional
 from playwright.async_api import async_playwright, Browser, BrowserContext, Playwright
 
 from sweatpants.config import get_settings
-from sweatpants.proxy.client import get_proxy_config
+from sweatpants.proxy.client import build_proxy_url
 
 
 class BrowserInstance:
@@ -33,8 +34,9 @@ class BrowserInstance:
 class BrowserPool:
     """Manages a pool of browser instances with automatic restart."""
 
-    def __init__(self) -> None:
+    def __init__(self, geo: Optional[str] = None) -> None:
         self.settings = get_settings()
+        self._geo = geo
         self._playwright: Optional[Playwright] = None
         self._browsers: list[BrowserInstance] = []
         self._available: asyncio.Queue[BrowserInstance] = asyncio.Queue()
@@ -60,22 +62,17 @@ class BrowserPool:
             self._initialized = True
 
     async def _create_browser(self) -> BrowserInstance:
-        """Create a new browser instance."""
+        """Create a new browser instance with unique proxy session."""
         if not self._playwright:
             raise RuntimeError("Playwright not initialized")
 
-        launch_options = {
-            "headless": True,
-        }
+        browser_session = f"browser-{uuid.uuid4()}"
+        proxy_url = build_proxy_url(session_id=browser_session, geo=self._geo)
 
-        try:
-            config = await get_proxy_config()
-            if "proxy_url" in config:
-                launch_options["proxy"] = {"server": config["proxy_url"]}
-        except Exception:
-            pass
-
-        browser = await self._playwright.chromium.launch(**launch_options)
+        browser = await self._playwright.chromium.launch(
+            headless=True,
+            proxy={"server": proxy_url},
+        )
         return BrowserInstance(
             browser=browser,
             created_at=datetime.now(timezone.utc),
@@ -138,27 +135,33 @@ class BrowserPool:
             self._initialized = False
 
 
-_pool: Optional[BrowserPool] = None
+_pools: dict[Optional[str], BrowserPool] = {}
 
 
-def _get_pool() -> BrowserPool:
-    """Get the global browser pool."""
-    global _pool
-    if _pool is None:
-        _pool = BrowserPool()
-    return _pool
+def _get_pool(geo: Optional[str] = None) -> BrowserPool:
+    """Get browser pool for the given geo-target."""
+    if geo not in _pools:
+        _pools[geo] = BrowserPool(geo=geo)
+    return _pools[geo]
 
 
 @asynccontextmanager
-async def get_browser() -> AsyncIterator[BrowserContext]:
+async def get_browser(geo: Optional[str] = None) -> AsyncIterator[BrowserContext]:
     """Get a browser context from the pool.
+
+    Args:
+        geo: Geo-target location (city/country/state). Default pool if None.
 
     Usage:
         async with get_browser() as browser:
             page = await browser.new_page()
             await page.goto("https://example.com")
+
+        async with get_browser(geo="newyork") as browser:
+            page = await browser.new_page()
+            await page.goto("https://example.com")  # NYC IP
     """
-    pool = _get_pool()
+    pool = _get_pool(geo=geo)
     context = await pool.acquire()
     try:
         yield context
@@ -167,8 +170,7 @@ async def get_browser() -> AsyncIterator[BrowserContext]:
 
 
 async def shutdown_pool() -> None:
-    """Shut down the global browser pool."""
-    global _pool
-    if _pool:
-        await _pool.stop()
-        _pool = None
+    """Shut down all browser pools."""
+    for pool in _pools.values():
+        await pool.stop()
+    _pools.clear()

@@ -1,50 +1,79 @@
-"""HTTP client with rotating proxy support."""
+"""HTTP client with Bright Data rotating proxy."""
 
+import uuid
 from typing import Any, Optional
 
 import httpx
 
 from sweatpants.config import get_settings
 
-_client: Optional[httpx.AsyncClient] = None
+BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": (
+        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+        "image/avif,image/webp,*/*;q=0.8"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+}
 
 
-async def get_proxy_config() -> dict[str, Any]:
-    """Get proxy configuration from the rotating proxy service.
+def build_proxy_url(
+    session_id: Optional[str] = None,
+    geo: Optional[str] = None,
+) -> str:
+    """Build Bright Data proxy URL with optional session and geo-targeting.
+
+    Args:
+        session_id: Session identifier for sticky IP. None = random IP each request.
+        geo: Geo-target location. Formats:
+             - City: "newyork", "austin", "losangeles"
+             - Country: "us", "uk", "de"
+             - State: "us-ny", "us-tx", "us-ca"
 
     Returns:
-        dict with proxy URL and configuration
+        Proxy URL with embedded parameters.
+
+    Raises:
+        RuntimeError: If Bright Data credentials not configured.
     """
     settings = get_settings()
+    if not settings.brightdata_username or not settings.brightdata_password:
+        raise RuntimeError(
+            "Bright Data proxy not configured. "
+            "Set SWEATPANTS_BRIGHTDATA_USERNAME and SWEATPANTS_BRIGHTDATA_PASSWORD."
+        )
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(f"{settings.proxy_service_url}/proxy")
-        response.raise_for_status()
-        return response.json()
+    params = []
+
+    effective_session = session_id if session_id else str(uuid.uuid4())
+    params.append(f"session-{effective_session}")
+
+    if geo:
+        if "-" in geo:
+            country, state = geo.split("-", 1)
+            params.append(f"country-{country}")
+            params.append(f"state-{state}")
+        elif len(geo) == 2:
+            params.append(f"country-{geo}")
+        else:
+            params.append(f"city-{geo}")
+
+    username_with_params = f"{settings.brightdata_username}-{'-'.join(params)}"
+
+    return (
+        f"http://{username_with_params}:{settings.brightdata_password}"
+        f"@{settings.brightdata_host}:{settings.brightdata_port}"
+    )
 
 
-async def _get_client() -> httpx.AsyncClient:
-    """Get or create the HTTP client with proxy configuration."""
-    global _client
-
-    if _client is None:
-        settings = get_settings()
-
-        try:
-            config = await get_proxy_config()
-            proxy_url = config.get("proxy_url")
-            _client = httpx.AsyncClient(
-                proxy=proxy_url,
-                timeout=httpx.Timeout(30.0),
-                follow_redirects=True,
-            )
-        except Exception:
-            _client = httpx.AsyncClient(
-                timeout=httpx.Timeout(30.0),
-                follow_redirects=True,
-            )
-
-    return _client
+def get_proxy_url() -> str:
+    """Get a rotating proxy URL (new IP each call)."""
+    return build_proxy_url()
 
 
 async def proxied_request(
@@ -56,26 +85,36 @@ async def proxied_request(
     data: Optional[dict[str, Any]] = None,
     json: Optional[dict[str, Any]] = None,
     timeout: Optional[float] = None,
+    browser_mode: bool = False,
+    session_id: Optional[str] = None,
+    geo: Optional[str] = None,
 ) -> httpx.Response:
-    """Make an HTTP request through the rotating proxy.
+    """Make HTTP request through Bright Data proxy.
 
     Args:
-        method: HTTP method (GET, POST, etc.)
+        method: HTTP method
         url: Target URL
-        headers: Optional request headers
-        params: Optional query parameters
-        data: Optional form data
-        json: Optional JSON body
-        timeout: Optional request timeout in seconds
+        headers: Request headers
+        params: Query parameters
+        data: Form data
+        json: JSON body
+        timeout: Request timeout
+        browser_mode: Add realistic browser headers
+        session_id: Sticky session ID (None = new IP each request)
+        geo: Geo-target location (city/country/state)
 
     Returns:
-        httpx.Response object
+        httpx.Response
     """
-    client = await _get_client()
+    proxy_url = build_proxy_url(session_id=session_id, geo=geo)
 
-    kwargs: dict[str, Any] = {}
-    if headers:
-        kwargs["headers"] = headers
+    request_headers = headers.copy() if headers else {}
+    if browser_mode:
+        for key, value in BROWSER_HEADERS.items():
+            if key not in request_headers:
+                request_headers[key] = value
+
+    kwargs: dict[str, Any] = {"headers": request_headers} if request_headers else {}
     if params:
         kwargs["params"] = params
     if data:
@@ -85,12 +124,9 @@ async def proxied_request(
     if timeout:
         kwargs["timeout"] = timeout
 
-    return await client.request(method, url, **kwargs)
-
-
-async def close_client() -> None:
-    """Close the HTTP client."""
-    global _client
-    if _client:
-        await _client.aclose()
-        _client = None
+    async with httpx.AsyncClient(
+        proxy=proxy_url,
+        timeout=httpx.Timeout(timeout or 30.0),
+        follow_redirects=True,
+    ) as client:
+        return await client.request(method, url, **kwargs)

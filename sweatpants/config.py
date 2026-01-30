@@ -1,6 +1,7 @@
 """Configuration management for Sweatpants."""
 
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -21,7 +22,10 @@ class Settings(BaseSettings):
     api_port: int = 8420
     api_auth_token: str = ""
 
-    proxy_service_url: str = "http://127.0.0.1:8421"
+    brightdata_username: str = ""
+    brightdata_password: str = ""
+    brightdata_host: str = "brd.superproxy.io"
+    brightdata_port: int = 22225
 
     browser_pool_size: int = 3
     browser_restart_hours: int = 4

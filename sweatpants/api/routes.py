@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sweatpants.api.scheduler import get_scheduler
 from sweatpants.engine.module_loader import ModuleLoader
 from sweatpants.engine.state import StateManager
+from sweatpants.proxy.client import proxied_request
 
 router = APIRouter()
 
@@ -26,6 +27,29 @@ class ModuleInstallRequest(BaseModel):
     """Request body for installing a module."""
 
     source_path: str
+
+
+class ProxyFetchRequest(BaseModel):
+    """Request body for proxy fetch endpoint."""
+
+    method: str = "GET"
+    url: str
+    headers: dict[str, str] = {}
+    body: Optional[str] = None
+    browser_mode: bool = False
+    timeout: Optional[int] = None
+    session_id: Optional[str] = None
+    geo: Optional[str] = None
+
+
+class ProxyFetchResponse(BaseModel):
+    """Response body from proxy fetch endpoint."""
+
+    success: bool
+    content: str = ""
+    status_code: int = 0
+    headers: dict[str, str] = {}
+    error: Optional[str] = None
 
 
 @router.get("/status")
@@ -174,3 +198,33 @@ async def get_results(job_id: str, limit: int = 1000) -> dict:
     results = await state.get_results(job_id, limit=limit)
     count = await state.get_result_count(job_id)
     return {"results": results, "total": count}
+
+
+@router.post("/proxy-fetch", response_model=ProxyFetchResponse)
+async def proxy_fetch(request: ProxyFetchRequest) -> ProxyFetchResponse:
+    """Forward HTTP request through Bright Data proxy.
+
+    Used by WordPress to proxy requests through the VPS.
+    """
+    try:
+        response = await proxied_request(
+            method=request.method.upper(),
+            url=request.url,
+            headers=request.headers if request.headers else None,
+            data=request.body.encode() if request.body else None,
+            timeout=float(request.timeout) if request.timeout else 60.0,
+            browser_mode=request.browser_mode,
+            session_id=request.session_id,
+            geo=request.geo,
+        )
+        return ProxyFetchResponse(
+            success=True,
+            content=response.text,
+            status_code=response.status_code,
+            headers=dict(response.headers),
+        )
+    except Exception as e:
+        return ProxyFetchResponse(
+            success=False,
+            error=str(e),
+        )
