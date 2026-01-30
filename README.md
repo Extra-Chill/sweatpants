@@ -29,7 +29,7 @@ sweatpants module install ./path/to/module
 sweatpants module list
 
 # Run a job
-sweatpants run bandcamp-scraper -i keywords="lo-fi,punk" -i clicks_per_keyword=10
+sweatpants run my-module -i query="search term"
 
 # Stop a job
 sweatpants stop <job-id>
