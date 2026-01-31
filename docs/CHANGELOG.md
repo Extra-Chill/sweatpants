@@ -2,6 +2,11 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.2.2] - 2026-01-31
+
+### Changed
+- Add use_proxy parameter to browser pool
+
 ## [0.2.1] - 2026-01-30
 
 ### Changed
