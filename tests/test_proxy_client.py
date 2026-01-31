@@ -1,6 +1,5 @@
 """Tests for proxy client module."""
 
-import os
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -11,84 +10,57 @@ from sweatpants.proxy.client import build_proxy_url, get_proxy_url, proxied_requ
 
 @pytest.fixture(autouse=True)
 def set_test_credentials(monkeypatch):
-    """Set test credentials for all tests."""
-    monkeypatch.setenv("SWEATPANTS_BRIGHTDATA_USERNAME", "test-user")
-    monkeypatch.setenv("SWEATPANTS_BRIGHTDATA_PASSWORD", "test-pass")
-    monkeypatch.setenv("SWEATPANTS_BRIGHTDATA_HOST", "proxy.test.com")
-    monkeypatch.setenv("SWEATPANTS_BRIGHTDATA_PORT", "12345")
+    """Set test proxy URL for all tests."""
+    monkeypatch.setenv("SWEATPANTS_PROXY_URL", "http://user:pass@proxy.test.com:12345")
+    monkeypatch.setenv(
+        "SWEATPANTS_PROXY_ROTATION_URL",
+        "http://user-session-{session}:pass@proxy.test.com:12345",
+    )
 
 
 class TestBuildProxyUrl:
     """Tests for build_proxy_url function."""
 
-    def test_basic_url_structure(self):
-        """URL should have correct structure with credentials."""
+    def test_returns_base_url_without_session(self):
+        """Without session_id, should return base proxy URL."""
         url = build_proxy_url()
-        assert url.startswith("http://test-user-session-")
-        assert ":test-pass@proxy.test.com:12345" in url
+        assert url == "http://user:pass@proxy.test.com:12345"
 
-    def test_session_id_none_generates_uuid(self):
-        """None session_id should generate unique session each call."""
-        url1 = build_proxy_url(session_id=None)
-        url2 = build_proxy_url(session_id=None)
-        assert url1 != url2  # Different UUIDs
+    def test_returns_base_url_with_session_but_no_rotation_url(self, monkeypatch):
+        """With session but no rotation URL, should return base URL."""
+        monkeypatch.setenv("SWEATPANTS_PROXY_ROTATION_URL", "")
+        url = build_proxy_url(session_id="my-session")
+        assert url == "http://user:pass@proxy.test.com:12345"
 
-    def test_session_id_sticky(self):
-        """Same session_id should produce same session in URL."""
-        url1 = build_proxy_url(session_id="my-session")
-        url2 = build_proxy_url(session_id="my-session")
-        assert "session-my-session" in url1
-        assert "session-my-session" in url2
+    def test_returns_rotation_url_with_session(self):
+        """With session and rotation URL, should substitute session placeholder."""
+        url = build_proxy_url(session_id="my-session")
+        assert url == "http://user-session-my-session:pass@proxy.test.com:12345"
 
-    def test_geo_country_code(self):
-        """Two-letter geo should be treated as country."""
-        url = build_proxy_url(geo="us")
-        assert "-country-us" in url
-
-    def test_geo_city_name(self):
-        """Longer geo without dash should be treated as city."""
-        url = build_proxy_url(geo="newyork")
-        assert "-city-newyork" in url
-
-    def test_geo_state_format(self):
-        """Geo with dash should be country-state."""
-        url = build_proxy_url(geo="us-ny")
-        assert "-country-us" in url
-        assert "-state-ny" in url
-
-    def test_combined_session_and_geo(self):
-        """Session and geo should both appear in URL."""
-        url = build_proxy_url(session_id="test", geo="newyork")
-        assert "-session-test" in url
-        assert "-city-newyork" in url
+    def test_session_placeholder_replacement(self):
+        """Session placeholder should be replaced correctly."""
+        url = build_proxy_url(session_id="sticky-123")
+        assert "{session}" not in url
+        assert "sticky-123" in url
 
 
 class TestBuildProxyUrlMissingCredentials:
     """Tests for missing credential handling."""
 
-    def test_missing_username_raises(self, monkeypatch):
-        """Missing username should raise RuntimeError."""
-        monkeypatch.delenv("SWEATPANTS_BRIGHTDATA_USERNAME", raising=False)
-        monkeypatch.setenv("SWEATPANTS_BRIGHTDATA_USERNAME", "")
-        with pytest.raises(RuntimeError, match="Bright Data proxy not configured"):
-            build_proxy_url()
-
-    def test_missing_password_raises(self, monkeypatch):
-        """Missing password should raise RuntimeError."""
-        monkeypatch.delenv("SWEATPANTS_BRIGHTDATA_PASSWORD", raising=False)
-        monkeypatch.setenv("SWEATPANTS_BRIGHTDATA_PASSWORD", "")
-        with pytest.raises(RuntimeError, match="Bright Data proxy not configured"):
+    def test_missing_proxy_url_raises(self, monkeypatch):
+        """Missing proxy URL should raise RuntimeError."""
+        monkeypatch.setenv("SWEATPANTS_PROXY_URL", "")
+        with pytest.raises(RuntimeError, match="Proxy not configured"):
             build_proxy_url()
 
 
 class TestGetProxyUrl:
     """Tests for get_proxy_url convenience function."""
 
-    def test_returns_rotating_url(self):
-        """get_proxy_url should return a new URL each time."""
-        url1 = get_proxy_url()
-        url2 = get_proxy_url()
-        assert url1 != url2  # Different sessions = different URLs
+    def test_returns_base_url(self):
+        """get_proxy_url should return the base proxy URL."""
+        url = get_proxy_url()
+        assert url == "http://user:pass@proxy.test.com:12345"
 
 
 class TestProxiedRequest:
@@ -138,8 +110,8 @@ class TestProxiedRequest:
             assert "Mozilla" in headers["User-Agent"]
 
     @pytest.mark.asyncio
-    async def test_passes_session_and_geo(self):
-        """session_id and geo should affect proxy URL."""
+    async def test_passes_session_id(self):
+        """session_id should affect proxy URL when rotation URL configured."""
         mock_response = AsyncMock(spec=httpx.Response)
         mock_response.text = "test"
         mock_response.status_code = 200
@@ -155,10 +127,8 @@ class TestProxiedRequest:
                 "GET",
                 "https://example.com",
                 session_id="sticky",
-                geo="newyork",
             )
 
             call_kwargs = mock_client.call_args.kwargs
             proxy_url = call_kwargs["proxy"]
-            assert "-session-sticky" in proxy_url
-            assert "-city-newyork" in proxy_url
+            assert "session-sticky" in proxy_url

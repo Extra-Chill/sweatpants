@@ -101,9 +101,10 @@ class MyModule(Module):
 - Results and logs stored per-job
 
 ### Proxy Integration
-- Direct Bright Data proxy integration (no external service dependency)
+- Provider-agnostic proxy configuration via URL
 - All HTTP requests and browser sessions route through proxy
-- Service fails to start if proxy credentials not configured
+- Service fails to start if proxy URL not configured
+- Supports any rotating proxy provider (IPRoyal, Oxylabs, Bright Data, etc.)
 
 ### Browser Pool
 - Playwright Chromium with pool management
@@ -127,10 +128,8 @@ All prefixed with `SWEATPANTS_`:
 | API_HOST | 127.0.0.1 | API bind host |
 | API_PORT | 8420 | API port |
 | API_AUTH_TOKEN | (empty) | API authentication token |
-| BRIGHTDATA_USERNAME | (required) | Bright Data proxy username |
-| BRIGHTDATA_PASSWORD | (required) | Bright Data proxy password |
-| BRIGHTDATA_HOST | brd.superproxy.io | Bright Data proxy host |
-| BRIGHTDATA_PORT | 22225 | Bright Data proxy port |
+| PROXY_URL | (required) | Full proxy URL: http://user:pass@host:port |
+| PROXY_ROTATION_URL | (optional) | URL pattern for sticky sessions with {session} placeholder |
 | BROWSER_POOL_SIZE | 3 | Browser instances |
 | BROWSER_RESTART_HOURS | 4 | Browser lifecycle |
 

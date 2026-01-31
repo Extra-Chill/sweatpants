@@ -1,6 +1,5 @@
-"""HTTP client with Bright Data rotating proxy."""
+"""HTTP client with rotating proxy support."""
 
-import uuid
 from typing import Any, Optional
 
 import httpx
@@ -22,53 +21,29 @@ BROWSER_HEADERS = {
 }
 
 
-def build_proxy_url(
-    session_id: Optional[str] = None,
-    geo: Optional[str] = None,
-) -> str:
-    """Build Bright Data proxy URL with optional session and geo-targeting.
+def build_proxy_url(session_id: Optional[str] = None) -> str:
+    """Build proxy URL, optionally with session for sticky IP.
 
     Args:
-        session_id: Session identifier for sticky IP. None = random IP each request.
-        geo: Geo-target location. Formats:
-             - City: "newyork", "austin", "losangeles"
-             - Country: "us", "uk", "de"
-             - State: "us-ny", "us-tx", "us-ca"
+        session_id: Session identifier for sticky IP. None = new IP each request.
 
     Returns:
-        Proxy URL with embedded parameters.
+        Proxy URL for use with HTTP clients.
 
     Raises:
-        RuntimeError: If Bright Data credentials not configured.
+        RuntimeError: If proxy URL not configured.
     """
     settings = get_settings()
-    if not settings.brightdata_username or not settings.brightdata_password:
-        raise RuntimeError(
-            "Bright Data proxy not configured. "
-            "Set SWEATPANTS_BRIGHTDATA_USERNAME and SWEATPANTS_BRIGHTDATA_PASSWORD."
-        )
 
-    params = []
+    if not settings.proxy_url:
+        raise RuntimeError("Proxy not configured. Set SWEATPANTS_PROXY_URL.")
 
-    effective_session = session_id if session_id else uuid.uuid4().hex
-    params.append(f"session-{effective_session}")
+    # If rotation URL provided and session requested, use rotation format
+    if session_id and settings.proxy_rotation_url:
+        return settings.proxy_rotation_url.replace("{session}", session_id)
 
-    if geo:
-        if "-" in geo:
-            country, state = geo.split("-", 1)
-            params.append(f"country-{country}")
-            params.append(f"state-{state}")
-        elif len(geo) == 2:
-            params.append(f"country-{geo}")
-        else:
-            params.append(f"city-{geo}")
-
-    username_with_params = f"{settings.brightdata_username}-{'-'.join(params)}"
-
-    return (
-        f"http://{username_with_params}:{settings.brightdata_password}"
-        f"@{settings.brightdata_host}:{settings.brightdata_port}"
-    )
+    # Otherwise return base URL (new IP each request for most providers)
+    return settings.proxy_url
 
 
 def get_proxy_url() -> str:
@@ -87,9 +62,8 @@ async def proxied_request(
     timeout: Optional[float] = None,
     browser_mode: bool = False,
     session_id: Optional[str] = None,
-    geo: Optional[str] = None,
 ) -> httpx.Response:
-    """Make HTTP request through Bright Data proxy.
+    """Make HTTP request through rotating proxy.
 
     Args:
         method: HTTP method
@@ -101,12 +75,11 @@ async def proxied_request(
         timeout: Request timeout
         browser_mode: Add realistic browser headers
         session_id: Sticky session ID (None = new IP each request)
-        geo: Geo-target location (city/country/state)
 
     Returns:
         httpx.Response
     """
-    proxy_url = build_proxy_url(session_id=session_id, geo=geo)
+    proxy_url = build_proxy_url(session_id=session_id)
 
     request_headers = headers.copy() if headers else {}
     if browser_mode:
@@ -128,6 +101,6 @@ async def proxied_request(
         proxy=proxy_url,
         timeout=httpx.Timeout(timeout or 30.0),
         follow_redirects=True,
-        verify=False,  # Bright Data proxy uses self-signed certificates
+        verify=False,  # Many proxy providers use self-signed certificates
     ) as client:
         return await client.request(method, url, **kwargs)

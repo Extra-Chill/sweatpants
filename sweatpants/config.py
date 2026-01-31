@@ -22,10 +22,8 @@ class Settings(BaseSettings):
     api_port: int = 8420
     api_auth_token: str = ""
 
-    brightdata_username: str = ""
-    brightdata_password: str = ""
-    brightdata_host: str = "brd.superproxy.io"
-    brightdata_port: int = 22225
+    proxy_url: str = ""  # Full URL: http://user:pass@host:port
+    proxy_rotation_url: str = ""  # URL pattern for sticky sessions: http://user-session-{session}:pass@host:port
 
     browser_pool_size: int = 3
     browser_restart_hours: int = 4
