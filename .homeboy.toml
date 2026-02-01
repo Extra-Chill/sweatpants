@@ -1,0 +1,9 @@
+[component]
+id = "sweatpants"
+local_path = "."
+
+[[component.version_targets]]
+file = "pyproject.toml"
+
+[component.changelog]
+target = "CHANGELOG.md"
