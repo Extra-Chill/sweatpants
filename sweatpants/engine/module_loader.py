@@ -2,9 +2,11 @@
 
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -101,6 +103,74 @@ class ModuleLoader:
 
         return manifest
 
+    async def install_from_git(
+        self, repo_url: str, module_name: Optional[str] = None
+    ) -> ModuleManifest:
+        """Install a module from a git repository.
+
+        Args:
+            repo_url: Git repository URL to clone.
+            module_name: Optional subdirectory within the repo containing the module.
+                        If not provided, uses the repo root.
+
+        Returns:
+            The installed module manifest.
+
+        Raises:
+            ValueError: If the repo URL is invalid or git operations fail.
+            FileNotFoundError: If module.json is not found.
+        """
+        # Validate URL format (basic check for git-compatible URLs)
+        if not re.match(r"^(https?://|git@|ssh://)", repo_url):
+            raise ValueError(f"Invalid git repository URL: {repo_url}")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            clone_path = temp_path / "repo"
+
+            # Clone the repository
+            try:
+                result = subprocess.run(
+                    ["git", "clone", "--depth", "1", repo_url, str(clone_path)],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                    timeout=120,
+                )
+            except subprocess.CalledProcessError as e:
+                raise ValueError(f"Failed to clone repository: {e.stderr.strip()}")
+            except subprocess.TimeoutExpired:
+                raise ValueError("Git clone timed out after 120 seconds")
+            except FileNotFoundError:
+                raise ValueError("Git is not installed or not in PATH")
+
+            # Determine the module source path
+            if module_name:
+                source_path = clone_path / module_name
+                if not source_path.exists():
+                    raise FileNotFoundError(
+                        f"Module subdirectory not found: {module_name}"
+                    )
+            else:
+                source_path = clone_path
+
+            # Verify module.json exists
+            manifest_path = source_path / "module.json"
+            if not manifest_path.exists():
+                if module_name:
+                    raise FileNotFoundError(
+                        f"No module.json found in {module_name}. "
+                        "Ensure the subdirectory contains a valid module."
+                    )
+                else:
+                    raise FileNotFoundError(
+                        "No module.json found in repository root. "
+                        "If the module is in a subdirectory, specify the module_name."
+                    )
+
+            # Use existing install method to complete the installation
+            return await self.install(str(source_path))
+
     async def uninstall(self, module_id: str) -> bool:
         """Uninstall a module."""
         module = await self.state.get_module(module_id)
@@ -166,6 +236,52 @@ class ModuleLoader:
 
         self._loaded_modules[module_id] = module_class
         return module_class
+
+    async def discover_modules(self) -> int:
+        """Discover and auto-install modules from the modules directory.
+
+        Scans SWEATPANTS_MODULES_DIR for subdirectories containing module.json
+        that aren't already registered in the database.
+
+        Returns:
+            Number of newly discovered and installed modules.
+        """
+        modules_dir = self.settings.modules_dir
+        if not modules_dir.exists():
+            return 0
+
+        discovered = 0
+        for subdir in modules_dir.iterdir():
+            if not subdir.is_dir():
+                continue
+
+            manifest_path = subdir / "module.json"
+            if not manifest_path.exists():
+                continue
+
+            try:
+                with open(manifest_path) as f:
+                    manifest_data = json.load(f)
+
+                module_id = manifest_data.get("id")
+                if not module_id:
+                    print(f"Warning: module.json in {subdir.name} has no id, skipping")
+                    continue
+
+                existing = await self.state.get_module(module_id)
+                if existing:
+                    continue
+
+                print(f"Discovered unregistered module: {module_id}")
+                await self.install(str(subdir))
+                print(f"Auto-installed module: {module_id}")
+                discovered += 1
+
+            except Exception as e:
+                print(f"Error discovering module in {subdir.name}: {e}")
+                continue
+
+        return discovered
 
     def validate_inputs(self, manifest: ModuleManifest, inputs: dict[str, Any]) -> dict[str, Any]:
         """Validate and normalize inputs against manifest."""

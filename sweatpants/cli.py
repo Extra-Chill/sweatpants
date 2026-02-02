@@ -307,5 +307,45 @@ def module_uninstall(module_id: str = typer.Argument(..., help="Module ID to uni
         raise typer.Exit(1)
 
 
+@module_app.command("install-git")
+def module_install_git(
+    repo_url: str = typer.Argument(..., help="Git repository URL to install from"),
+    module_name: Optional[str] = typer.Argument(
+        None, help="Module subdirectory within the repo (optional)"
+    ),
+) -> None:
+    """Install a module from a git repository."""
+    import httpx
+
+    settings = get_settings()
+    url = f"http://{settings.api_host}:{settings.api_port}"
+
+    console.print(f"[dim]Cloning from {repo_url}...[/dim]")
+
+    request_body = {"repo_url": repo_url}
+    if module_name:
+        request_body["module_name"] = module_name
+
+    try:
+        response = httpx.post(
+            f"{url}/modules/install-git",
+            json=request_body,
+            timeout=180.0,  # Git clone can take a while
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        console.print(f"[green]Module installed:[/green] {data['id']}")
+        console.print(f"Name: {data['name']}")
+        console.print(f"Version: {data['version']}")
+
+    except httpx.ConnectError:
+        console.print("[red]Error: Cannot connect to Sweatpants daemon.[/red]")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        console.print(f"[red]Error: {e.response.json().get('detail', str(e))}[/red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

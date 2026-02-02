@@ -2,6 +2,11 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.2.3] - 2026-02-02
+
+### Added
+- Auto-discover and install modules on daemon startup. Scans SWEATPANTS_MODULES_DIR for directories containing module.json that aren't already registered.
+
 ## [0.2.2] - 2026-01-31
 
 ### Changed

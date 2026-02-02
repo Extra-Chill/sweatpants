@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from sweatpants.api.scheduler import get_scheduler
 from sweatpants.browser.pool import shutdown_pool
+from sweatpants.engine.module_loader import ModuleLoader
 from sweatpants.proxy.client import build_proxy_url
 
 
@@ -20,6 +21,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except RuntimeError as e:
         print(f"FATAL: {e}")
         raise
+
+    loader = ModuleLoader()
+    discovered = await loader.discover_modules()
+    if discovered > 0:
+        print(f"Auto-installed {discovered} discovered module(s)")
 
     sched = get_scheduler()
     resumed = await sched.resume_interrupted_jobs()
