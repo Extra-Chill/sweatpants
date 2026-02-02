@@ -2,6 +2,14 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+
+## [0.2.4] - 2026-02-02
+
+### Added
+- Add `sweatpants module install-git <repo_url> [module_name]` command for installing modules directly from git repositories
+- Add `POST /modules/install-git` API endpoint for git-based module installation
+- Support for installing modules from subdirectories within a repo
+
 ## [0.2.3] - 2026-02-02
 
 ### Added
