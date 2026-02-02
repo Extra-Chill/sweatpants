@@ -29,6 +29,13 @@ class ModuleInstallRequest(BaseModel):
     source_path: str
 
 
+class ModuleInstallGitRequest(BaseModel):
+    """Request body for installing a module from git."""
+
+    repo_url: str
+    module_name: Optional[str] = None
+
+
 class ProxyFetchRequest(BaseModel):
     """Request body for proxy fetch endpoint."""
 
@@ -88,6 +95,28 @@ async def install_module(request: ModuleInstallRequest) -> dict:
             "name": manifest.name,
             "version": manifest.version,
         }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/modules/install-git")
+async def install_module_git(request: ModuleInstallGitRequest) -> dict:
+    """Install a module from a git repository."""
+    loader = ModuleLoader()
+    try:
+        manifest = await loader.install_from_git(
+            repo_url=request.repo_url,
+            module_name=request.module_name,
+        )
+        return {
+            "id": manifest.id,
+            "name": manifest.name,
+            "version": manifest.version,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

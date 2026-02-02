@@ -76,6 +76,35 @@ class ModuleLoader:
         manifest = ModuleManifest(**manifest_data)
 
         dest = self._get_module_path(manifest.id)
+        # Skip copy if source is already at destination (e.g., module already in modules_dir)
+        if source.resolve() == dest.resolve():
+            requirements = dest / "requirements.txt"
+            if requirements.exists():
+                subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "pip",
+                        "install",
+                        "-r",
+                        str(requirements),
+                        "-q",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+            await self.state.save_module(
+                module_id=manifest.id,
+                name=manifest.name,
+                version=manifest.version,
+                description=manifest.description,
+                entrypoint=manifest.entrypoint,
+                inputs=[i.model_dump() for i in manifest.inputs],
+                settings=[s.model_dump() for s in manifest.settings],
+                capabilities=manifest.capabilities,
+                path=str(dest),
+            )
+            return manifest
         if dest.exists():
             shutil.rmtree(dest)
 
