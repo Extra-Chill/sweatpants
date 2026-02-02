@@ -2,6 +2,23 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.2.4] - 2026-02-03
+
+### Added
+- Add manifest-based module management with `sweatpants module sync` command
+- Add `POST /modules/sync` API endpoint for syncing modules from configured sources
+- Add `modules.yaml` config file for declarative module configuration
+- Support for multiple module source repositories with selective module installation
+
+Example `modules.yaml`:
+```yaml
+module_sources:
+  - repo: https://github.com/Sarai-Chinwag/sweatpants-modules
+    modules: [diagram-generator, chart-generator]
+  - repo: https://github.com/other/repo
+    modules: [module-name]
+```
+
 ## [0.2.3] - 2026-02-02
 
 ### Added

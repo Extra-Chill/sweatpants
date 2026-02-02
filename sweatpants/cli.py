@@ -347,5 +347,72 @@ def module_install_git(
         raise typer.Exit(1)
 
 
+@module_app.command("sync")
+def module_sync() -> None:
+    """Sync modules from configured module sources.
+
+    Reads module_sources from modules.yaml and installs/updates modules.
+    Configure sources in SWEATPANTS_MODULES_CONFIG_PATH (default: /var/lib/sweatpants/modules.yaml).
+
+    Example modules.yaml:
+        module_sources:
+          - repo: https://github.com/Sarai-Chinwag/sweatpants-modules
+            modules: [diagram-generator, chart-generator]
+    """
+    import httpx
+
+    settings = get_settings()
+    url = f"http://{settings.api_host}:{settings.api_port}"
+
+    console.print(f"[dim]Syncing modules from {settings.modules_config_path}...[/dim]")
+
+    try:
+        response = httpx.post(
+            f"{url}/modules/sync",
+            timeout=300.0,  # Multiple git clones can take a while
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if data.get("error"):
+            console.print(f"[yellow]Warning: {data['error']}[/yellow]")
+            return
+
+        installed = data.get("installed", [])
+        failed = data.get("failed", [])
+
+        if installed:
+            table = Table(title="Installed Modules")
+            table.add_column("ID", style="cyan")
+            table.add_column("Name")
+            table.add_column("Version")
+            table.add_column("Source")
+
+            for module in installed:
+                table.add_row(
+                    module["id"],
+                    module["name"],
+                    module["version"],
+                    module["source"],
+                )
+            console.print(table)
+        else:
+            console.print("[dim]No modules were installed.[/dim]")
+
+        if failed:
+            console.print("\n[red]Failed:[/red]")
+            for f in failed:
+                console.print(f"  - {f['module']} from {f['source']}: {f['error']}")
+
+        console.print(f"\n[green]Sync complete:[/green] {len(installed)} installed, {len(failed)} failed")
+
+    except httpx.ConnectError:
+        console.print("[red]Error: Cannot connect to Sweatpants daemon.[/red]")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        console.print(f"[red]Error: {e.response.json().get('detail', str(e))}[/red]")
+        raise typer.Exit(1)
+
+
 if __name__ == "__main__":
     app()

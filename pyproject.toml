@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sweatpants"
-version = "0.2.3"
+version = "0.2.5"
 description = "Server-side automation engine for long-running tasks"
 readme = "README.md"
 license = "MIT"
@@ -30,6 +30,7 @@ dependencies = [
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
     "websockets>=12.0",
+    "pyyaml>=6.0.0",
 ]
 
 [project.optional-dependencies]

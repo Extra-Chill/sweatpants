@@ -133,6 +133,26 @@ async def uninstall_module(module_id: str) -> dict:
     return {"status": "uninstalled", "module_id": module_id}
 
 
+@router.post("/modules/sync")
+async def sync_modules() -> dict:
+    """Sync modules from configured module sources.
+
+    Reads module_sources from modules.yaml config file, clones/pulls each repo,
+    and installs the specified modules.
+
+    Returns summary with installed, failed, and skipped modules.
+    Raises 400 if no module_sources configured.
+    """
+    loader = ModuleLoader()
+    try:
+        result = await loader.sync_modules()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/jobs")
 async def create_job(request: JobCreateRequest) -> dict:
     """Start a new job."""
