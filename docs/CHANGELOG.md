@@ -2,6 +2,17 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.2.3] - 2026-02-02
+
+### Added
+- Auto-discover and install modules on daemon startup. Scans SWEATPANTS_MODULES_DIR for directories containing module.json that aren't already registered.
+- Add `POST /modules/install-git` API endpoint for installing modules from git repositories.
+- Add `sweatpants module install-git <repo_url> [module_name]` CLI command.
+- Support installing modules from subdirectories within a repo.
+
+### Fixed
+- Guard `install()` against source==dest when module already lives in modules directory.
+
 ## [0.2.2] - 2026-01-31
 
 ### Changed
