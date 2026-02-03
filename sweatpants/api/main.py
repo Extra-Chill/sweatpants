@@ -19,8 +19,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         proxy_host = proxy_url.split("@")[1] if "@" in proxy_url else proxy_url
         print(f"Proxy configured: {proxy_host}")
     except RuntimeError as e:
-        print(f"FATAL: {e}")
-        raise
+        print(f"Warning: {e} (modules requiring proxy will fail at runtime)")
 
     loader = ModuleLoader()
     discovered = await loader.discover_modules()
