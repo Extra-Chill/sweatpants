@@ -2,6 +2,10 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.3.1] - 2026-02-02
+
+- Sync __version__ with pyproject.toml and refresh Homeboy version targets
+
 ## [0.2.2] - 2026-01-31
 
 ### Changed
