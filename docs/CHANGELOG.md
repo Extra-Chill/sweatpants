@@ -2,6 +2,14 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.3.2] - 2026-02-02
+
+### Changed
+- Merge pull request #7 from saraichinwag/fix/optional-proxy
+
+### Fixed
+- make proxy configuration optional at startup
+
 ## [0.3.1] - 2026-02-02
 
 - Sync __version__ with pyproject.toml and refresh Homeboy version targets
