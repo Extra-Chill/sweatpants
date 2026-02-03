@@ -374,10 +374,6 @@ def module_sync() -> None:
         response.raise_for_status()
         data = response.json()
 
-        if data.get("error"):
-            console.print(f"[yellow]Warning: {data['error']}[/yellow]")
-            return
-
         installed = data.get("installed", [])
         failed = data.get("failed", [])
 
