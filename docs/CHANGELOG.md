@@ -2,6 +2,10 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.4.0] - 2026-02-02
+
+- Auto-discover modules at startup; add git install endpoint/CLI; add modules.yaml sync workflow; guard install when source equals destination
+
 ## [0.2.2] - 2026-01-31
 
 ### Changed
