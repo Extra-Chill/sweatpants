@@ -336,3 +336,77 @@ class ModuleLoader:
             validated[input_def.id] = value
 
         return validated
+
+    async def sync_modules(self) -> dict[str, Any]:
+        """Sync modules from configured module sources.
+
+        Reads module_sources from modules.yaml config, clones/pulls each repo,
+        and installs the specified modules. Handles errors gracefully by skipping
+        failed repos and continuing with others.
+
+        Returns:
+            Summary dict with installed, failed, and skipped modules.
+        """
+        modules_config = self.settings.load_modules_config()
+
+        if not modules_config or not modules_config.module_sources:
+            raise ValueError("No module_sources configured in modules.yaml")
+
+        installed = []
+        failed = []
+        skipped = []
+
+        for source in modules_config.module_sources:
+            repo_url = source.repo
+            modules_to_install = source.modules
+
+            # If no specific modules listed, try to install from repo root
+            if not modules_to_install:
+                modules_to_install = [None]
+
+            for module_name in modules_to_install:
+                module_display = module_name if module_name else "(root)"
+
+                try:
+                    manifest = await self.install_from_git(
+                        repo_url=repo_url,
+                        module_name=module_name,
+                    )
+                    installed.append({
+                        "id": manifest.id,
+                        "name": manifest.name,
+                        "version": manifest.version,
+                        "source": repo_url,
+                        "module_path": module_name,
+                    })
+                    print(f"Installed: {manifest.id} from {repo_url}/{module_display}")
+
+                except FileNotFoundError as e:
+                    failed.append({
+                        "module": module_display,
+                        "source": repo_url,
+                        "error": str(e),
+                    })
+                    print(f"Failed: {module_display} from {repo_url} - {e}")
+
+                except ValueError as e:
+                    failed.append({
+                        "module": module_display,
+                        "source": repo_url,
+                        "error": str(e),
+                    })
+                    print(f"Failed: {module_display} from {repo_url} - {e}")
+
+                except Exception as e:
+                    failed.append({
+                        "module": module_display,
+                        "source": repo_url,
+                        "error": str(e),
+                    })
+                    print(f"Failed: {module_display} from {repo_url} - {e}")
+
+        return {
+            "installed": installed,
+            "failed": failed,
+            "skipped": skipped,
+        }
