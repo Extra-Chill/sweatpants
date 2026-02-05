@@ -163,6 +163,51 @@ def stop(job_id: str = typer.Argument(..., help="Job ID to stop")) -> None:
 
 
 @app.command()
+def result(
+    job_id: str = typer.Argument(..., help="Job ID to get results"),
+    raw: bool = typer.Option(False, "--raw", "-r", help="Output raw JSON"),
+) -> None:
+    """Get results/output for a job."""
+    import httpx
+
+    settings = get_settings()
+    url = f"http://{settings.api_host}:{settings.api_port}"
+
+    try:
+        response = httpx.get(f"{url}/jobs/{job_id}/results", timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+
+        if raw:
+            console.print(json.dumps(data, indent=2))
+            return
+
+        results = data.get("results", [])
+        total = data.get("total", 0)
+
+        if not results:
+            console.print("[dim]No results for this job.[/dim]")
+            return
+
+        console.print(f"[bold]Results ({total} total):[/bold]\n")
+        for i, result_item in enumerate(results, 1):
+            console.print(f"[cyan]--- Result {i} ---[/cyan]")
+            result_data = result_item.get("data", {})
+            if isinstance(result_data, dict):
+                console.print(json.dumps(result_data, indent=2))
+            else:
+                console.print(str(result_data))
+            console.print()
+
+    except httpx.ConnectError:
+        console.print("[red]Error: Cannot connect to Sweatpants daemon.[/red]")
+        raise typer.Exit(1)
+    except httpx.HTTPStatusError as e:
+        console.print(f"[red]Error: {e.response.json().get('detail', str(e))}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command()
 def logs(
     job_id: str = typer.Argument(..., help="Job ID to view logs"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output"),
