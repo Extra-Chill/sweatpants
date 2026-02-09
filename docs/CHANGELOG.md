@@ -2,6 +2,12 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.4.0] - 2026-02-09
+
+### Added
+- Callbacks API for orchestration - new /callbacks endpoint for receiving and tracking agent completion callbacks
+- Token-based authentication for secure callback posting via X-Callback-Token header
+
 ## [0.3.2] - 2026-02-02
 
 ### Changed
