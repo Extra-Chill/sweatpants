@@ -58,6 +58,19 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_module ON jobs(module_id);
 CREATE INDEX IF NOT EXISTS idx_job_logs_job ON job_logs(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_results_job ON job_results(job_id);
+
+CREATE TABLE IF NOT EXISTS callbacks (
+    id TEXT PRIMARY KEY,
+    callback_id TEXT,
+    source TEXT,
+    status TEXT,
+    payload TEXT,
+    received_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_callbacks_callback_id ON callbacks(callback_id);
+CREATE INDEX IF NOT EXISTS idx_callbacks_source ON callbacks(source);
+CREATE INDEX IF NOT EXISTS idx_callbacks_received_at ON callbacks(received_at);
 """
 
 
@@ -399,3 +412,103 @@ class StateManager:
             ) as cursor:
                 row = await cursor.fetchone()
                 return row[0] if row else 0
+
+    async def save_callback(
+        self,
+        callback_id: Optional[str],
+        source: Optional[str],
+        status: Optional[str],
+        payload: dict[str, Any],
+    ) -> str:
+        """Save a callback and return its ID."""
+        cb_id = str(uuid4())
+        async with aiosqlite.connect(self._db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO callbacks (id, callback_id, source, status, payload, received_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    cb_id,
+                    callback_id,
+                    source,
+                    status,
+                    json.dumps(payload),
+                    datetime.now(timezone.utc).isoformat(),
+                ),
+            )
+            await db.commit()
+        return cb_id
+
+    async def get_callback(self, cb_id: str) -> Optional[dict]:
+        """Get a callback by ID (supports partial ID matching)."""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                "SELECT * FROM callbacks WHERE id = ? OR id LIKE ?",
+                (cb_id, f"{cb_id}%"),
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "id": row["id"],
+                        "callback_id": row["callback_id"],
+                        "source": row["source"],
+                        "status": row["status"],
+                        "payload": json.loads(row["payload"]) if row["payload"] else {},
+                        "received_at": row["received_at"],
+                    }
+                return None
+
+    async def list_callbacks(
+        self,
+        source: Optional[str] = None,
+        callback_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """List callbacks, optionally filtered by source or callback_id."""
+        async with aiosqlite.connect(self._db_path) as db:
+            db.row_factory = aiosqlite.Row
+
+            conditions = []
+            params: list[Any] = []
+
+            if source:
+                conditions.append("source = ?")
+                params.append(source)
+            if callback_id:
+                conditions.append("callback_id = ?")
+                params.append(callback_id)
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+            query = f"""
+                SELECT * FROM callbacks
+                WHERE {where_clause}
+                ORDER BY received_at DESC
+                LIMIT ?
+            """
+            params.append(limit)
+
+            async with db.execute(query, params) as cursor:
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "id": row["id"],
+                        "callback_id": row["callback_id"],
+                        "source": row["source"],
+                        "status": row["status"],
+                        "payload": json.loads(row["payload"]) if row["payload"] else {},
+                        "received_at": row["received_at"],
+                    }
+                    for row in rows
+                ]
+
+    async def delete_callback(self, cb_id: str) -> bool:
+        """Delete a callback by ID."""
+        async with aiosqlite.connect(self._db_path) as db:
+            cursor = await db.execute(
+                "DELETE FROM callbacks WHERE id = ? OR id LIKE ?",
+                (cb_id, f"{cb_id}%"),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
