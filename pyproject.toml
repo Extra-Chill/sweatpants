@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sweatpants"
-version = "0.3.2"
+version = "0.4.0"
 description = "Server-side automation engine for long-running tasks"
 readme = "README.md"
 license = "MIT"
