@@ -59,6 +59,15 @@ class ProxyFetchResponse(BaseModel):
     error: Optional[str] = None
 
 
+class CallbackRequest(BaseModel):
+    """Request body for receiving a callback."""
+
+    callback_id: Optional[str] = None
+    source: Optional[str] = None
+    status: Optional[str] = None
+    payload: dict[str, Any] = {}
+
+
 @router.get("/status")
 async def get_status() -> dict:
     """Get engine status and running jobs."""
@@ -277,3 +286,55 @@ async def proxy_fetch(request: ProxyFetchRequest) -> ProxyFetchResponse:
             success=False,
             error=str(e),
         )
+
+
+@router.post("/callbacks")
+async def receive_callback(request: CallbackRequest) -> dict:
+    """Receive a callback from an external source.
+
+    Used for orchestration - agents can POST results back after completing tasks.
+    """
+    state = StateManager()
+    cb_id = await state.save_callback(
+        callback_id=request.callback_id,
+        source=request.source,
+        status=request.status,
+        payload=request.payload,
+    )
+    return {"id": cb_id, "received": True}
+
+
+@router.get("/callbacks")
+async def list_callbacks(
+    source: Optional[str] = None,
+    callback_id: Optional[str] = None,
+    limit: int = 100,
+) -> dict:
+    """List callbacks, optionally filtered by source or callback_id."""
+    state = StateManager()
+    callbacks = await state.list_callbacks(
+        source=source,
+        callback_id=callback_id,
+        limit=limit,
+    )
+    return {"callbacks": callbacks}
+
+
+@router.get("/callbacks/{cb_id}")
+async def get_callback(cb_id: str) -> dict:
+    """Get a specific callback by ID."""
+    state = StateManager()
+    callback = await state.get_callback(cb_id)
+    if not callback:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    return callback
+
+
+@router.delete("/callbacks/{cb_id}")
+async def delete_callback(cb_id: str) -> dict:
+    """Delete a callback by ID."""
+    state = StateManager()
+    success = await state.delete_callback(cb_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Callback not found")
+    return {"status": "deleted", "id": cb_id}
