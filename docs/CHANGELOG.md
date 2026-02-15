@@ -2,6 +2,11 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.4.3] - 2026-02-15
+
+### Changed
+- docs: add non-root systemd install example and SWEATPANTS_ENV_FILE guidance
+
 ## [0.4.2] - 2026-02-15
 
 ### Fixed
