@@ -32,6 +32,7 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("/var/lib/sweatpants")
     modules_dir: Path = Path("/var/lib/sweatpants/modules")
+    exports_dir: Optional[Path] = None
     db_path: Path = Path("/var/lib/sweatpants/sweatpants.db")
     modules_config_path: Path = Path("/var/lib/sweatpants/modules.yaml")
 
@@ -47,10 +48,21 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
 
+    def model_post_init(self, __context) -> None:  # type: ignore[override]
+        """Derive defaults that depend on other settings.
+
+        This keeps `exports_dir` configurable while still defaulting to
+        `<data_dir>/exports`.
+        """
+        if self.exports_dir is None:
+            self.exports_dir = self.data_dir / "exports"
+
     def ensure_directories(self) -> None:
         """Create required directories if they don't exist."""
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.modules_dir.mkdir(parents=True, exist_ok=True)
+        if self.exports_dir is not None:
+            self.exports_dir.mkdir(parents=True, exist_ok=True)
 
     def load_modules_config(self) -> Optional[ModulesConfig]:
         """Load module sources configuration from modules.yaml."""
