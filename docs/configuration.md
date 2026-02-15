@@ -64,7 +64,38 @@ module_sources:
 
 ## systemd Service
 
-Example systemd unit file:
+Sweatpants does **not** require root, but the default data paths (like `/var/lib/sweatpants`) are typically root-owned. If you're running the service as a non-root user, make sure you override `SWEATPANTS_DATA_DIR` (and related directory settings) to a writable location.
+
+### Example (non-root install)
+
+```ini
+[Unit]
+Description=Sweatpants Automation Engine
+After=network.target
+
+[Service]
+Type=simple
+User=openclaw
+Environment=HOME=/home/openclaw
+WorkingDirectory=/home/openclaw/services/sweatpants
+ExecStart=/home/openclaw/services/sweatpants/.venv/bin/sweatpants serve
+Restart=on-failure
+RestartSec=5
+
+# Non-root friendly data paths
+Environment=SWEATPANTS_DATA_DIR=/home/openclaw/data
+Environment=SWEATPANTS_MODULES_DIR=/home/openclaw/data/modules
+Environment=SWEATPANTS_DB_PATH=/home/openclaw/data/sweatpants.db
+Environment=SWEATPANTS_MODULES_CONFIG_PATH=/home/openclaw/data/modules.yaml
+
+# Optional
+# Environment=SWEATPANTS_PROXY_URL=http://user:pass@proxy.example.com:8080
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Example (root install)
 
 ```ini
 [Unit]
@@ -89,14 +120,16 @@ WantedBy=multi-user.target
 
 By default, Sweatpants does not probe for a `.env` file relative to the current working directory.
 
-To load environment variables from a `.env` file, set `SWEATPANTS_ENV_FILE` to an absolute path (for example via systemd `Environment=` or your shell):
+To load environment variables from a `.env` file, set `SWEATPANTS_ENV_FILE` to an absolute path (for example via systemd `Environment=` or your shell).
+
+**Tip:** If you're running as a non-root user, prefer storing the env file somewhere under that user's home directory (for example `/home/openclaw/.sweatpants.env`).
 
 ```bash
-# /opt/sweatpants/.env
-SWEATPANTS_DATA_DIR=/var/lib/sweatpants
+# /home/openclaw/.sweatpants.env
+SWEATPANTS_DATA_DIR=/home/openclaw/data
 SWEATPANTS_PROXY_URL=http://user:pass@proxy.example.com:8080
 SWEATPANTS_BROWSER_POOL_SIZE=5
 
 # then:
-export SWEATPANTS_ENV_FILE=/opt/sweatpants/.env
+export SWEATPANTS_ENV_FILE=/home/openclaw/.sweatpants.env
 ```
