@@ -261,9 +261,19 @@ def logs(
             with ws_client.connect(ws_url) as websocket:
                 for message in websocket:
                     entry = json.loads(message)
-                    timestamp = entry["timestamp"]
-                    level = entry["level"]
-                    msg = entry["message"]
+
+                    # Server sends keepalive pings.
+                    if entry.get("type") == "ping":
+                        continue
+
+                    timestamp = entry.get("timestamp", "")
+                    level = entry.get("level", "INFO")
+                    msg = entry.get("message", "")
+
+                    if not msg:
+                        # Avoid crashing on unexpected payloads.
+                        continue
+
                     color = {"INFO": "white", "WARNING": "yellow", "ERROR": "red"}.get(
                         level, "white"
                     )
