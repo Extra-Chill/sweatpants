@@ -245,10 +245,13 @@ def logs(
         response.raise_for_status()
         data = response.json()
 
-        for entry in data["logs"]:
-            timestamp = entry["timestamp"]
-            level = entry["level"]
-            message = entry["message"]
+        for entry in data.get("logs", []):
+            if entry.get("type") == "ping":
+                continue
+
+            timestamp = entry.get("timestamp", "")
+            level = entry.get("level", "INFO")
+            message = entry.get("message", "")
 
             color = {"INFO": "white", "WARNING": "yellow", "ERROR": "red"}.get(level, "white")
             console.print(f"[dim]{timestamp}[/dim] [{color}]{level}[/{color}] {message}")
@@ -259,11 +262,18 @@ def logs(
 
             ws_url = f"ws://{settings.api_host}:{settings.api_port}/jobs/{job_id}/logs/stream"
             with ws_client.connect(ws_url) as websocket:
-                for message in websocket:
-                    entry = json.loads(message)
-                    timestamp = entry["timestamp"]
-                    level = entry["level"]
-                    msg = entry["message"]
+                for ws_message in websocket:
+                    try:
+                        entry = json.loads(ws_message)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if entry.get("type") == "ping":
+                        continue
+
+                    timestamp = entry.get("timestamp", "")
+                    level = entry.get("level", "INFO")
+                    msg = entry.get("message", "")
                     color = {"INFO": "white", "WARNING": "yellow", "ERROR": "red"}.get(
                         level, "white"
                     )
