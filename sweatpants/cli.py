@@ -23,6 +23,28 @@ console = Console()
 
 
 @app.command()
+def config() -> None:
+    """Show effective configuration values."""
+    settings = get_settings()
+
+    table = Table(title="Sweatpants Config")
+    table.add_column("Key", style="cyan")
+    table.add_column("Value")
+
+    table.add_row("data_dir", str(settings.data_dir))
+    table.add_row("modules_dir", str(settings.modules_dir))
+    table.add_row("exports_dir", str(settings.exports_dir) if settings.exports_dir else "")
+    table.add_row("db_path", str(settings.db_path))
+    table.add_row("modules_config_path", str(settings.modules_config_path))
+    table.add_row("api_host", settings.api_host)
+    table.add_row("api_port", str(settings.api_port))
+    table.add_row("api_auth_token", "(set)" if settings.api_auth_token else "(unset)")
+    table.add_row("log_level", settings.log_level)
+
+    console.print(table)
+
+
+@app.command()
 def serve(
     host: str = typer.Option(None, "--host", "-h", help="API host to bind to"),
     port: int = typer.Option(None, "--port", "-p", help="API port to bind to"),
