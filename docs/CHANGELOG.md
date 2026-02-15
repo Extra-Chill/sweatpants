@@ -2,6 +2,12 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## [0.4.2] - 2026-02-15
+
+### Fixed
+- logs --follow no longer crashes on websocket ping frames
+- avoid probing .env relative to CWD; support SWEATPANTS_ENV_FILE for explicit env files
+
 ## [0.4.1] - 2026-02-15
 
 ### Added
