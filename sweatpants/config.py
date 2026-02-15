@@ -1,5 +1,6 @@
 """Configuration management for Sweatpants."""
 
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -26,7 +27,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="SWEATPANTS_",
-        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -80,5 +80,17 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    """Get application settings singleton."""
-    return Settings()
+    """Get application settings singleton.
+
+    By default, Sweatpants does not probe for a `.env` file relative to the
+    current working directory.
+
+    To load settings from an env file, set `SWEATPANTS_ENV_FILE` to an absolute
+    path.
+    """
+
+    env_file = os.environ.get("SWEATPANTS_ENV_FILE")
+    if env_file:
+        return Settings(_env_file=env_file)
+
+    return Settings(_env_file=None)
