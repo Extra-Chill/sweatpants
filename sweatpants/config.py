@@ -5,7 +5,12 @@ from typing import Optional
 
 import yaml
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    DotEnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 
 class ModuleSourceConfig(BaseModel):
@@ -21,6 +26,23 @@ class ModulesConfig(BaseModel):
     module_sources: list[ModuleSourceConfig] = Field(default_factory=list)
 
 
+class SafeDotEnvSettingsSource(DotEnvSettingsSource):
+    """Dotenv loader that won't crash when cwd isn't traversable.
+
+    Some hardened deployments run the CLI from directories the service user
+    cannot stat (e.g. /root). The default DotEnvSettingsSource probes `.env`
+    relative to the current working directory and can raise PermissionError.
+
+    Treat that as "no dotenv file".
+    """
+
+    def _read_env_files(self):  # type: ignore[override]
+        try:
+            return super()._read_env_files()
+        except (PermissionError, OSError):
+            return {}
+
+
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
@@ -30,6 +52,23 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # Replace default dotenv reader with a safe version.
+        return (
+            init_settings,
+            env_settings,
+            SafeDotEnvSettingsSource(settings_cls),
+            file_secret_settings,
+        )
 
     data_dir: Path = Path("/var/lib/sweatpants")
     modules_dir: Path = Path("/var/lib/sweatpants/modules")
