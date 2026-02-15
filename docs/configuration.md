@@ -87,11 +87,16 @@ WantedBy=multi-user.target
 
 ## .env File
 
-Environment variables can be loaded from a `.env` file in the working directory:
+By default, Sweatpants does not probe for a `.env` file relative to the current working directory.
+
+To load environment variables from a `.env` file, set `SWEATPANTS_ENV_FILE` to an absolute path (for example via systemd `Environment=` or your shell):
 
 ```bash
 # /opt/sweatpants/.env
 SWEATPANTS_DATA_DIR=/var/lib/sweatpants
 SWEATPANTS_PROXY_URL=http://user:pass@proxy.example.com:8080
 SWEATPANTS_BROWSER_POOL_SIZE=5
+
+# then:
+export SWEATPANTS_ENV_FILE=/opt/sweatpants/.env
 ```
