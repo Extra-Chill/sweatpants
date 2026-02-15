@@ -2,6 +2,12 @@
 
 All notable changes to Sweatpants are documented in this file.
 
+## Unreleased
+
+### Added
+- Add `exports_dir` setting (defaults to `<data_dir>/exports`) with `SWEATPANTS_EXPORTS_DIR` override
+- Add `sweatpants config` command to show effective configuration
+
 ## [0.4.0] - 2026-02-09
 
 ### Added
