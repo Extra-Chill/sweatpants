@@ -2,7 +2,7 @@
 
 All notable changes to Sweatpants are documented in this file.
 
-## Unreleased
+## [0.4.4] - 2026-02-17
 
 ### Added
 - POST /modules/reload endpoint for hot-reloading modules without process restart (#18)
