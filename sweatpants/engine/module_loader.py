@@ -266,6 +266,36 @@ class ModuleLoader:
         self._loaded_modules[module_id] = module_class
         return module_class
 
+    async def reload_all(self) -> dict:
+        """Reload all modules from disk.
+
+        Clears the in-memory module cache and Python's sys.modules cache
+        for all loaded module entrypoints, then re-discovers modules from
+        the modules directory.
+
+        Returns summary of reloaded modules.
+        """
+        # Clear Python's import cache for loaded modules
+        modules_to_remove = [
+            key for key in sys.modules
+            if key.startswith("sweatpants_module_") or str(self.settings.modules_dir) in str(getattr(sys.modules[key], '__file__', '') or '')
+        ]
+        for key in modules_to_remove:
+            del sys.modules[key]
+
+        # Clear instance cache
+        self._loaded_modules.clear()
+
+        # Re-discover all modules
+        modules = await self.list()
+
+        return {
+            "status": "reloaded",
+            "cleared_cache_entries": len(modules_to_remove),
+            "modules_found": len(modules),
+            "modules": modules,
+        }
+
     async def discover_modules(self) -> int:
         """Discover and auto-install modules from the modules directory.
 

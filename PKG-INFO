@@ -1,0 +1,172 @@
+Metadata-Version: 2.4
+Name: sweatpants
+Version: 0.3.2
+Summary: Server-side automation engine for long-running tasks
+Author-email: Chris Huber <chris@extrachill.com>
+License-Expression: MIT
+License-File: LICENSE
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Python: >=3.11
+Requires-Dist: aiosqlite>=0.19.0
+Requires-Dist: fastapi>=0.109.0
+Requires-Dist: httpx>=0.26.0
+Requires-Dist: playwright>=1.41.0
+Requires-Dist: pydantic-settings>=2.1.0
+Requires-Dist: pydantic>=2.5.0
+Requires-Dist: rich>=13.7.0
+Requires-Dist: typer>=0.9.0
+Requires-Dist: uvicorn[standard]>=0.27.0
+Requires-Dist: websockets>=12.0
+Provides-Extra: dev
+Requires-Dist: pytest-asyncio>=0.23.0; extra == 'dev'
+Requires-Dist: pytest>=7.4.0; extra == 'dev'
+Requires-Dist: ruff>=0.1.0; extra == 'dev'
+Description-Content-Type: text/markdown
+
+# Sweatpants
+
+Server-side automation engine for long-running tasks.
+
+## Overview
+
+Sweatpants is the work plane counterpart to [Homeboy](https://github.com/Extra-Chill/homeboy). While Homeboy (Rust, local) handles orchestration and developer interface, Sweatpants (Python, server) executes automation tasks.
+
+## Installation
+
+```bash
+pip install -e .
+playwright install chromium
+```
+
+## CLI Usage
+
+```bash
+# Start the daemon
+sweatpants serve
+
+# Check status
+sweatpants status
+
+# Install a module
+sweatpants module install ./path/to/module
+
+# List modules
+sweatpants module list
+
+# Run a job
+sweatpants run my-module -i query="search term"
+
+# Stop a job
+sweatpants stop <job-id>
+
+# View logs
+sweatpants logs <job-id>
+sweatpants logs <job-id> --follow
+```
+
+## REST API
+
+The daemon exposes a REST API for remote control:
+
+```
+GET  /status              - Engine status, running jobs
+GET  /modules             - List installed modules
+POST /modules/install     - Install a module
+GET  /jobs                - List jobs
+POST /jobs                - Start a job
+GET  /jobs/<id>           - Job status
+POST /jobs/<id>/stop      - Stop a job
+GET  /jobs/<id>/logs      - Get logs
+WS   /jobs/<id>/logs/stream - Stream logs
+GET  /jobs/<id>/results   - Get results
+```
+
+## Module Development
+
+Create a module with `module.json`:
+
+```json
+{
+  "id": "my-module",
+  "name": "My Module",
+  "version": "1.0.0",
+  "description": "Does something useful",
+  "entrypoint": "main.py",
+  "inputs": [
+    {"id": "query", "type": "text", "required": true}
+  ],
+  "settings": [
+    {"id": "api_key", "type": "text"}
+  ],
+  "capabilities": ["proxy", "browser"]
+}
+```
+
+Implement in `main.py`:
+
+```python
+from sweatpants import Module, proxied_request, get_browser
+
+class MyModule(Module):
+    async def run(self, inputs, settings):
+        query = inputs["query"]
+
+        # Use rotating proxy for HTTP requests
+        response = await proxied_request("GET", f"https://api.example.com/search?q={query}")
+
+        # Use browser with proxy for scraping
+        async with get_browser() as browser:
+            page = await browser.new_page()
+            await page.goto("https://example.com")
+            # ... scraping logic
+
+        # Yield results incrementally
+        yield {"result": "data"}
+
+        # Save checkpoint for resume capability
+        await self.save_checkpoint(progress=50)
+
+        # Log progress
+        await self.log("Processing complete")
+```
+
+## Configuration
+
+Environment variables (prefix `SWEATPANTS_`):
+
+- `DATA_DIR` - Data directory (default: `/var/lib/sweatpants`)
+- `MODULES_DIR` - Installed modules (default: `/var/lib/sweatpants/modules`)
+- `DB_PATH` - SQLite database (default: `/var/lib/sweatpants/sweatpants.db`)
+- `API_HOST` - API bind host (default: `127.0.0.1`)
+- `API_PORT` - API port (default: `8420`)
+- `PROXY_SERVICE_URL` - Rotating proxy service (default: `http://127.0.0.1:8421`)
+- `BROWSER_POOL_SIZE` - Browser instances (default: `3`)
+- `BROWSER_RESTART_HOURS` - Browser restart interval (default: `4`)
+
+## systemd Service
+
+```ini
+[Unit]
+Description=Sweatpants Automation Engine
+After=network.target
+
+[Service]
+Type=simple
+User=sweatpants
+WorkingDirectory=/opt/sweatpants
+ExecStart=/opt/sweatpants/venv/bin/sweatpants serve
+Restart=always
+RestartSec=10
+Environment=SWEATPANTS_DATA_DIR=/var/lib/sweatpants
+
+[Install]
+WantedBy=multi-user.target
+```
+
+## License
+
+MIT
