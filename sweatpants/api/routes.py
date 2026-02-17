@@ -162,6 +162,22 @@ async def sync_modules() -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/modules/reload")
+async def reload_modules() -> dict:
+    """Reload all modules from disk without restarting.
+
+    Clears the in-memory module cache and re-discovers modules
+    from the modules directory. Use after updating module files
+    on disk (via sync, manual edits, or PR merges).
+    """
+    loader = ModuleLoader()
+    try:
+        result = await loader.reload_all()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/jobs")
 async def create_job(request: JobCreateRequest) -> dict:
     """Start a new job."""
