@@ -1,0 +1,35 @@
+{
+  "id": "kimaki-trigger",
+  "name": "Kimaki Trigger",
+  "version": "1.0.0",
+  "description": "Trigger a Kimaki agent session via CLI. Routes prompts to fleet agents by Discord channel.",
+  "entrypoint": "main.py",
+  "inputs": [
+    {
+      "id": "message",
+      "type": "text",
+      "required": true,
+      "description": "Prompt to send to the agent"
+    },
+    {
+      "id": "channel",
+      "type": "text",
+      "required": false,
+      "description": "Discord channel ID to create thread in. Uses DEFAULT_CHANNEL_ID if not set."
+    },
+    {
+      "id": "user",
+      "type": "text",
+      "required": false,
+      "description": "Discord username to add to the thread"
+    },
+    {
+      "id": "kimaki_path",
+      "type": "text",
+      "required": false,
+      "description": "Path to kimaki CLI binary. Default: kimaki"
+    }
+  ],
+  "settings": [],
+  "capabilities": []
+}
