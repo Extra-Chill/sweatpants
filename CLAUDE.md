@@ -2,11 +2,7 @@
 
 ## Project Overview
 
-Sweatpants is a server-side automation engine for long-running tasks. It serves as the "work plane" counterpart to Homeboy (the "control plane").
-
-**Role Division:**
-- **Homeboy** (Rust, local): Developer interface, orchestration, remote control
-- **Sweatpants** (Python, server): Automation execution, long-running jobs
+Sweatpants is a server-side Python automation engine for repeatable, long-running tasks. It has a modular architecture — you write small, focused modules as async generators, install them, and run them as jobs. The engine handles persistence, logging, checkpointing, resume, and real-time log streaming.
 
 ## Architecture
 
