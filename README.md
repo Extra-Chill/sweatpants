@@ -1,124 +1,206 @@
 # Sweatpants
 
-Server-side automation engine for long-running tasks.
+Lazy man's automation engine. Drop in a module, run a job, get results.
 
-## Overview
+Sweatpants is a server-side Python engine for repeatable, long-running automation tasks. It has a modular architecture — you write small, focused modules as async generators, install them, and run them as jobs. The engine handles persistence, logging, checkpointing, resume, and real-time log streaming out of the box.
 
-Sweatpants is the work plane counterpart to [Homeboy](https://github.com/Extra-Chill/homeboy). While Homeboy (Rust, local) handles orchestration and developer interface, Sweatpants (Python, server) executes automation tasks.
+## How It Works
 
-## Installation
+```
+CLI / REST API
+      │
+      ▼
+  JobScheduler ──► Module (async generator)
+      │                  │
+      │              yield results
+      │                  │
+  StateManager ◄─────────┘
+   (SQLite)
+```
+
+1. You write a **module** — a Python class with an async `run()` method that yields results
+2. You **install** it (from a directory or git repo)
+3. You **run** it as a job via CLI or REST API
+4. The engine persists results, streams logs, and handles cancellation/resume
+
+## Quick Start
 
 ```bash
 pip install -e .
-playwright install chromium
+playwright install chromium  # only if your modules use browser automation
 ```
-
-## CLI Usage
 
 ```bash
 # Start the daemon
 sweatpants serve
 
-# Check status
-sweatpants status
+# Install the example module
+sweatpants module install ./examples/hello-world
 
-# Install a module
-sweatpants module install ./path/to/module
+# Run it
+sweatpants run hello-world -i name="World"
 
-# List modules
-sweatpants module list
-
-# Run a job
-sweatpants run my-module -i query="search term"
-
-# Stop a job
-sweatpants stop <job-id>
-
-# View logs
-sweatpants logs <job-id>
+# Watch it work
 sweatpants logs <job-id> --follow
+
+# Get results
+sweatpants result <job-id>
 ```
 
-## REST API
+## Writing a Module
 
-The daemon exposes a REST API for remote control:
+A module is a directory with two files:
 
-```
-GET  /status              - Engine status, running jobs
-GET  /modules             - List installed modules
-POST /modules/install     - Install a module
-GET  /jobs                - List jobs
-POST /jobs                - Start a job
-GET  /jobs/<id>           - Job status
-POST /jobs/<id>/stop      - Stop a job
-GET  /jobs/<id>/logs      - Get logs
-WS   /jobs/<id>/logs/stream - Stream logs
-GET  /jobs/<id>/results   - Get results
-```
-
-## Module Development
-
-Create a module with `module.json`:
+**module.json** — declares what the module is and what it needs:
 
 ```json
 {
-  "id": "my-module",
-  "name": "My Module",
+  "id": "hello-world",
+  "name": "Hello World",
   "version": "1.0.0",
-  "description": "Does something useful",
+  "description": "A simple example module",
   "entrypoint": "main.py",
   "inputs": [
-    {"id": "query", "type": "text", "required": true}
+    {"id": "name", "type": "text", "required": true},
+    {"id": "count", "type": "integer", "default": 3}
   ],
-  "settings": [
-    {"id": "api_key", "type": "text"}
-  ],
-  "capabilities": ["proxy", "browser"]
+  "settings": [],
+  "capabilities": []
 }
 ```
 
-Implement in `main.py`:
+**main.py** — a class that subclasses `Module` and implements `run()` as an async generator:
+
+```python
+import asyncio
+from sweatpants import Module
+
+class HelloWorld(Module):
+    async def run(self, inputs, settings):
+        name = inputs["name"]
+        count = inputs.get("count", 3)
+
+        for i in range(count):
+            if self.is_cancelled:
+                return
+
+            await self.log(f"Greeting {i + 1} of {count}")
+            await asyncio.sleep(1)
+
+            # Yield results incrementally — each one is persisted
+            yield {"greeting": f"Hello, {name}!", "iteration": i + 1}
+
+            # Checkpoint for resume after restart
+            await self.save_checkpoint(completed=i + 1)
+
+        await self.log("Done!")
+```
+
+That's it. Install with `sweatpants module install ./your-module` and run with `sweatpants run your-module`.
+
+## Batteries Included
+
+Modules can declare **capabilities** to use built-in infrastructure:
 
 ```python
 from sweatpants import Module, proxied_request, get_browser
 
-class MyModule(Module):
+class ScraperModule(Module):
     async def run(self, inputs, settings):
-        query = inputs["query"]
+        # HTTP requests through a rotating proxy
+        response = await proxied_request("GET", "https://example.com/api")
 
-        # Use rotating proxy for HTTP requests
-        response = await proxied_request("GET", f"https://api.example.com/search?q={query}")
-
-        # Use browser with proxy for scraping
+        # Browser automation with Playwright (proxied, pooled)
         async with get_browser() as browser:
             page = await browser.new_page()
             await page.goto("https://example.com")
-            # ... scraping logic
+            content = await page.content()
 
-        # Yield results incrementally
-        yield {"result": "data"}
-
-        # Save checkpoint for resume capability
-        await self.save_checkpoint(progress=50)
-
-        # Log progress
-        await self.log("Processing complete")
+        yield {"content": content}
 ```
+
+- **Rotating proxy** — provider-agnostic HTTP proxy with sticky sessions and geo-targeting
+- **Browser pool** — managed Playwright Chromium instances with automatic restart and proxy integration
+- **Checkpointing** — save progress, resume interrupted jobs automatically on daemon restart
+- **Log streaming** — real-time WebSocket log streaming for live monitoring
+
+## CLI
+
+```bash
+sweatpants serve                          # Start the daemon
+sweatpants status                         # Engine status and running jobs
+sweatpants config                         # Show effective configuration
+
+sweatpants run <module> -i key=value      # Start a job
+sweatpants run <module> -d 2h             # Start with auto-stop after 2 hours
+sweatpants stop <job-id>                  # Stop a running job
+sweatpants logs <job-id>                  # View logs
+sweatpants logs <job-id> --follow         # Stream logs in real-time
+sweatpants result <job-id>                # Get results
+
+sweatpants module list                    # List installed modules
+sweatpants module install ./path          # Install from directory
+sweatpants module install-git <url>       # Install from git repo
+sweatpants module uninstall <id>          # Remove a module
+sweatpants module sync                    # Bulk sync from modules.yaml
+```
+
+## REST API
+
+The daemon exposes a full REST API on port 8420 for remote control:
+
+```
+GET  /status                - Engine status and running jobs
+GET  /modules               - List installed modules
+POST /modules/install       - Install from local path
+POST /modules/install-git   - Install from git repo
+POST /modules/sync          - Bulk sync from modules.yaml
+POST /modules/reload        - Hot-reload modules without restart
+GET  /jobs                  - List all jobs
+POST /jobs                  - Start a job
+GET  /jobs/<id>             - Job status
+POST /jobs/<id>/stop        - Stop a job
+GET  /jobs/<id>/logs        - Get logs
+WS   /jobs/<id>/logs/stream - Stream logs via WebSocket
+GET  /jobs/<id>/results     - Get results
+POST /proxy-fetch           - Forward HTTP requests through proxy
+POST /callbacks             - Receive orchestration callbacks
+GET  /callbacks/<id>        - Get callback status
+```
+
+## Module Sources
+
+For managing many modules across repos, create a `modules.yaml`:
+
+```yaml
+module_sources:
+  - repo: https://github.com/your-org/your-modules
+    modules: [module-a, module-b]
+  - repo: https://github.com/your-org/more-modules
+    modules: [module-c]
+```
+
+Then run `sweatpants module sync` to install/update all of them at once.
 
 ## Configuration
 
 Environment variables (prefix `SWEATPANTS_`):
 
-- `DATA_DIR` - Data directory (default: `/var/lib/sweatpants`)
-- `MODULES_DIR` - Installed modules (default: `/var/lib/sweatpants/modules`)
-- `DB_PATH` - SQLite database (default: `/var/lib/sweatpants/sweatpants.db`)
-- `API_HOST` - API bind host (default: `127.0.0.1`)
-- `API_PORT` - API port (default: `8420`)
-- `PROXY_SERVICE_URL` - Rotating proxy service (default: `http://127.0.0.1:8421`)
-- `BROWSER_POOL_SIZE` - Browser instances (default: `3`)
-- `BROWSER_RESTART_HOURS` - Browser restart interval (default: `4`)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_DIR` | `/var/lib/sweatpants` | Data directory |
+| `MODULES_DIR` | `/var/lib/sweatpants/modules` | Installed modules |
+| `DB_PATH` | `/var/lib/sweatpants/sweatpants.db` | SQLite database |
+| `API_HOST` | `127.0.0.1` | API bind host |
+| `API_PORT` | `8420` | API port |
+| `API_AUTH_TOKEN` | *(unset)* | API authentication token |
+| `PROXY_URL` | *(unset)* | Rotating proxy URL |
+| `PROXY_ROTATION_URL` | *(unset)* | Sticky session URL pattern |
+| `BROWSER_POOL_SIZE` | `3` | Concurrent browser instances |
+| `BROWSER_RESTART_HOURS` | `4` | Browser restart interval |
+| `LOG_LEVEL` | `INFO` | Log verbosity |
 
-## systemd Service
+## Running as a Service
 
 ```ini
 [Unit]
