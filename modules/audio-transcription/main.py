@@ -237,7 +237,7 @@ class AudioTranscription(Module):
         def _run_diarization():
             pipeline = Pipeline.from_pretrained(
                 "pyannote/speaker-diarization-community-1",
-                use_auth_token=hf_token,
+                token=hf_token,
             )
             
             output = pipeline(str(wav_path))
