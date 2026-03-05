@@ -428,8 +428,10 @@ class AudioTranscription(Module):
             (r'^okay[,\s]+', ''),            # "Okay, " at start
             (r'\s+hmm[,\s]*', ' '),         # " hmm"
             (r'\s+err[,\s]*', ' '),          # " err"
-            (r'\s+ah[,\s]*', ' '),           # " ah"
-            (r'\s+oh[,\s]+', ' '),           # " oh, "
+            (r'\s+ah[,\s]*', ' '),  # " ah"
+            (r'\s+oh[,\s]+', ' '),  # " oh, "
+            (r'\s+just[,\s]+', ' '),  # " just, " or " just " - careful, can be meaningful
+            (r'^just[,\s]+', ''),  # "Just, " at start
         ]
         
         result = text
