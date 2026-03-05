@@ -1,0 +1,65 @@
+{
+  "id": "audio-transcription",
+  "name": "Audio Transcription with Speaker Diarization",
+  "version": "1.0.0",
+  "description": "Transcribes audio files with speaker identification using Whisper and PyAnnote",
+  "entrypoint": "main.py",
+  "inputs": [
+    {
+      "id": "audio_path",
+      "type": "text",
+      "required": true,
+      "description": "Path to audio file (mp3, m4a, wav, etc.)"
+    },
+    {
+      "id": "output_dir",
+      "type": "text",
+      "required": true,
+      "description": "Directory to save output files"
+    },
+    {
+      "id": "model",
+      "type": "text",
+      "required": false,
+      "default": "base",
+      "description": "Whisper model size (tiny, base, small, medium, large)"
+    },
+    {
+      "id": "language",
+      "type": "text",
+      "required": false,
+      "default": "en",
+      "description": "Language code (e.g., 'en', 'auto' for auto-detect)"
+    },
+    {
+      "id": "diarize",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "Perform speaker diarization"
+    },
+    {
+      "id": "min_speakers",
+      "type": "integer",
+      "required": false,
+      "default": 2,
+      "description": "Minimum number of speakers (for diarization)"
+    },
+    {
+      "id": "max_speakers",
+      "type": "integer",
+      "required": false,
+      "default": 10,
+      "description": "Maximum number of speakers (for diarization)"
+    }
+  ],
+  "settings": [
+    {
+      "id": "hf_token",
+      "type": "secret",
+      "required": false,
+      "description": "Hugging Face access token (required for diarization)"
+    }
+  ],
+  "capabilities": []
+}
