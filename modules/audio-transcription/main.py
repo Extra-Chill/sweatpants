@@ -37,7 +37,7 @@ class AudioTranscription(Module):
             inputs: audio_path, output_dir, model, language, diarize, min_speakers, max_speakers
             settings: hf_token (for diarization)
         """
-        audio_path = Path(inputs["audio_path"])
+        audio_path = Path(inputs["audio_path"]) if inputs.get("audio_path") else None
         output_dir = Path(inputs["output_dir"])
         model_size = inputs.get("model", "base")
         language = inputs.get("language", "en")
@@ -93,6 +93,9 @@ class AudioTranscription(Module):
                 }
             
             return
+        
+        if audio_path is None:
+            raise ValueError("audio_path is required unless using text_input mode")
         
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
