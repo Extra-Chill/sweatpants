@@ -37,7 +37,7 @@ class AudioTranscription(Module):
         should_diarize = inputs.get("diarize", True)
         min_speakers = inputs.get("min_speakers", 2)
         max_speakers = inputs.get("max_speakers", 10)
-        hf_token = settings.get("hf_token")
+        hf_token = settings.get("hf_token") or os.environ.get("HF_TOKEN")
 
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
