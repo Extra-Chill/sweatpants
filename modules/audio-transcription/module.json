@@ -65,6 +65,12 @@
       "required": false,
       "default": false,
       "description": "Remove filler words (um, uh, like, you know, etc.) from transcript"
+    },
+    {
+      "id": "text_input",
+      "type": "text",
+      "required": false,
+      "description": "Path to existing transcript file to process (skips audio transcription, useful for re-processing with filler removal)"
     }
   ],
   "settings": [

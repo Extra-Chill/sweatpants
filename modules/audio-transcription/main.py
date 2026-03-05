@@ -46,8 +46,54 @@ class AudioTranscription(Module):
         max_speakers = inputs.get("max_speakers", 10)
         skip_transcription = inputs.get("skip_transcription", False)
         remove_fillers = inputs.get("remove_fillers", False)
+        text_input = inputs.get("text_input")
         hf_token = settings.get("hf_token") or os.environ.get("HF_TOKEN")
-
+        
+        # Standalone text processing mode
+        if text_input:
+            text_path = Path(text_input)
+            if not text_path.exists():
+                raise FileNotFoundError(f"Text file not found: {text_path}")
+            
+            await self.log(f"Processing existing transcript: {text_path.name}")
+            
+            # Read the input file
+            with open(text_path, 'r') as f:
+                content = f.read()
+            
+            # Apply filler removal
+            if remove_fillers:
+                clean_content = self._remove_fillers(content)
+                
+                # Determine output path
+                output_path = output_dir / f"{text_path.stem}.clean.txt"
+                with open(output_path, 'w') as f:
+                    f.write(clean_content)
+                
+                await self.log(f"Clean transcript saved: {output_path}")
+                
+                yield {
+                    "status": "complete",
+                    "files": {
+                        "input": str(text_path),
+                        "output": str(output_path),
+                    },
+                    "stats": {
+                        "original_chars": len(content),
+                        "clean_chars": len(clean_content),
+                        "reduction": len(content) - len(clean_content),
+                    },
+                }
+            else:
+                await self.log("No text processing requested (set remove_fillers=true)")
+                yield {
+                    "status": "complete",
+                    "files": {"input": str(text_path)},
+                    "message": "No processing requested",
+                }
+            
+            return
+        
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
         
