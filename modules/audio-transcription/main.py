@@ -3,6 +3,13 @@
 Handles audio file conversion, Whisper transcription, and PyAnnote speaker diarization.
 """
 
+# Patch torchaudio for pyannote.audio compatibility (torchaudio 2.x removed these functions)
+import torchaudio
+if not hasattr(torchaudio, 'set_audio_backend'):
+    torchaudio.set_audio_backend = lambda x: None
+if not hasattr(torchaudio, 'list_audio_backends'):
+    torchaudio.list_audio_backends = lambda: ['soundfile']
+
 import asyncio
 import json
 import os
@@ -233,11 +240,11 @@ class AudioTranscription(Module):
         """Perform speaker diarization using PyAnnote community-1."""
         os.environ["HF_TOKEN"] = hf_token
         
-        def _run_diarization():
-            pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-community-1",
-                token=hf_token,
-            )
+            def _run_diarization():
+                    pipeline = Pipeline.from_pretrained(
+                        "pyannote/speaker-diarization-community-1",
+                        use_auth_token=hf_token,
+                    )
             
             output = pipeline(str(wav_path))
             
