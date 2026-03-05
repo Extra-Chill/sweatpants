@@ -230,23 +230,19 @@ class AudioTranscription(Module):
         min_speakers: int,
         max_speakers: int,
     ) -> list[dict]:
-        """Perform speaker diarization using PyAnnote."""
+        """Perform speaker diarization using PyAnnote community-1."""
         os.environ["HF_TOKEN"] = hf_token
         
         def _run_diarization():
             pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
+                "pyannote/speaker-diarization-community-1",
                 token=hf_token,
             )
             
-            diarization = pipeline(
-                str(wav_path),
-                min_speakers=min_speakers,
-                max_speakers=max_speakers,
-            )
+            output = pipeline(str(wav_path))
             
             results = []
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
+            for turn, speaker in output.speaker_diarization:
                 results.append({
                     "speaker": speaker,
                     "start": turn.start,
