@@ -463,6 +463,13 @@ class AudioTranscription(Module):
             (r"^it's\s+like\b", ''),  # "It's like" at start
             (r'\s+kind\s+of[-\s]*[-—]', ' '),  # "kind of ---" with dashes
             (r'\s+sort\s+of[-\s]*[-—]', ' '),  # "sort of ---"
+            
+            # Combo patterns
+            (r'\s+just\s+kind\s+of\s+', ' '),  # " just kind of " → single space
+            (r'\band\s+it\s+was\s+just\s+it\s+was\b', ' it was'),  # "And it was just it was" → "It was"
+            (r'\bit\s+was\s+just\s+it\s+was\b', ' it was'),  # "it was just it was" → "it was"
+            (r'\s+just\s+really\b', ''),  # " just really"
+            (r'\s+just\s+definitely\b', ''),  # " just definitely"
         ]
         
         result = text
