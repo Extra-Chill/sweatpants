@@ -58,6 +58,13 @@
       "required": false,
       "default": false,
       "description": "Skip Whisper transcription if transcription files already exist (useful for re-running diarization only)"
+    },
+    {
+      "id": "remove_fillers",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "Remove filler words (um, uh, like, you know, etc.) from transcript"
     }
   ],
   "settings": [

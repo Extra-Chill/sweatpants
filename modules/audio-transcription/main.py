@@ -45,6 +45,7 @@ class AudioTranscription(Module):
         min_speakers = inputs.get("min_speakers", 2)
         max_speakers = inputs.get("max_speakers", 10)
         skip_transcription = inputs.get("skip_transcription", False)
+        remove_fillers = inputs.get("remove_fillers", False)
         hf_token = settings.get("hf_token") or os.environ.get("HF_TOKEN")
 
         if not audio_path.exists():
@@ -319,6 +320,55 @@ class AudioTranscription(Module):
             lines.append(seg["text"].strip())
             lines.append("")
         return "\n".join(lines)
+
+    def _remove_fillers(self, text: str) -> str:
+        """Remove filler words from transcript text.
+        
+        Removes common filler words while preserving meaning and flow.
+        """
+        import re
+        
+        # Define filler word patterns
+        # More aggressive patterns first, then simpler ones
+        patterns = [
+            # Multi-word fillers (more specific first)
+            (r'\byou know[,\s]*\s*', ''),  # "you know, " or "you know "
+            (r'\bI mean[,\s]*\s*', ''),    # "I mean, " or "I mean "
+            (r'\bkind of\s+', ''),          # "kind of " (when used as filler)
+            (r'\bsort of\s+', ''),          # "sort of "
+            
+            # Single word fillers with context clues
+            (r'\s+um[,\s]*', ' '),          # " um" or "um, "
+            (r'\s+uh[,\s]*', ' '),          # " uh" or "uh, "
+            (r'\s+like[,\s]+', ' '),        # " like " or "like, " - careful with this
+            (r'^like\s+', ''),               # "Like " at start
+            (r'\s+actually[,\s]*', ' '),     # " actually"
+            (r'\s+basically[,\s]*', ' '),   # " basically"
+            (r'\s+literally[,\s]*', ' '),   # " literally"
+            (r'\s+honestly[,\s]*', ' '),    # " honestly"
+            (r'\s+well[,\s]+', ' '),         # " well, "
+            (r'^well[,\s]+', ''),            # "Well, " at start
+            (r'\s+so[,\s]+', ' '),           # " so, " - careful
+            (r'\s+right[,\?\s]*', ' '),      # " right" or "right?"
+            (r'\s+okay[,\s]+', ' '),         # " okay, "
+            (r'^okay[,\s]+', ''),            # "Okay, " at start
+            (r'\s+hmm[,\s]*', ' '),         # " hmm"
+            (r'\s+err[,\s]*', ' '),          # " err"
+            (r'\s+ah[,\s]*', ' '),           # " ah"
+            (r'\s+oh[,\s]+', ' '),           # " oh, "
+        ]
+        
+        result = text
+        for pattern, replacement in patterns:
+            result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+        
+        # Clean up double spaces and trim
+        result = re.sub(r'\s+', ' ', result)
+        result = re.sub(r'\s+([,.!?])', r'\1', result)  # Remove space before punctuation
+        result = re.sub(r'([,.!?])\s+', r'\1 ', result)    # Ensure space after punctuation
+        result = result.strip()
+        
+        return result
 
     def _to_vtt(self, segments: list[dict]) -> str:
         """Convert segments to WebVTT format."""
