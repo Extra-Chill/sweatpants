@@ -230,12 +230,12 @@ class AudioTranscription(Module):
             await self.log(f"FFmpeg conversion failed: {e}", level="ERROR")
             return None
 
-    async def _diarize(
-        self, 
-        wav_path: Path, 
-        hf_token: str,
-        min_speakers: int,
-        max_speakers: int,
+        async def _diarize(
+            self, 
+            wav_path: Path, 
+            hf_token: str,
+            min_speakers: int,
+            max_speakers: int,
     ) -> list[dict]:
         """Perform speaker diarization using PyAnnote community-1."""
         os.environ["HF_TOKEN"] = hf_token
