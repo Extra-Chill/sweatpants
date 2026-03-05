@@ -149,8 +149,28 @@ class AudioTranscription(Module):
             combined_txt = output_base.with_suffix(".speakers.txt")
             combined_json = output_base.with_suffix(".speakers.json")
             
-            with open(combined_txt, "w") as f:
-                f.write(self._format_speaker_text(combined))
+            # Apply filler removal if requested
+            combined_txt_clean = None
+            if remove_fillers:
+                combined_clean = []
+                for seg in combined:
+                    seg_clean = seg.copy()
+                    seg_clean["text"] = self._remove_fillers(seg["text"])
+                    combined_clean.append(seg_clean)
+                
+                # Write clean version
+                combined_txt_clean = output_base.with_suffix(".speakers.clean.txt")
+                with open(combined_txt_clean, "w") as f:
+                    f.write(self._format_speaker_text(combined_clean))
+                
+                # Also write original
+                with open(combined_txt, "w") as f:
+                    f.write(self._format_speaker_text(combined))
+                
+                await self.log(f"Clean transcript (fillers removed) saved")
+            else:
+                with open(combined_txt, "w") as f:
+                    f.write(self._format_speaker_text(combined))
             
             with open(combined_json, "w") as f:
                 json.dump(combined, f, indent=2)
@@ -158,17 +178,22 @@ class AudioTranscription(Module):
             await self.log(f"Speaker-separated transcription saved")
             await self.save_checkpoint(stage="complete", has_speakers=True)
             
+            output_files = {
+                "transcription": str(whisper_txt),
+                "transcription_json": str(whisper_json),
+                "transcription_srt": str(whisper_srt),
+                "transcription_vtt": str(whisper_vtt),
+                "diarization": str(diarization_json),
+                "combined_txt": str(combined_txt),
+                "combined_json": str(combined_json),
+            }
+            
+            if remove_fillers and combined_txt_clean:
+                output_files["combined_txt_clean"] = str(combined_txt_clean)
+            
             yield {
                 "status": "complete",
-                "files": {
-                    "transcription": str(whisper_txt),
-                    "transcription_json": str(whisper_json),
-                    "transcription_srt": str(whisper_srt),
-                    "transcription_vtt": str(whisper_vtt),
-                    "diarization": str(diarization_json),
-                    "combined_txt": str(combined_txt),
-                    "combined_json": str(combined_json),
-                },
+                "files": output_files,
                 "stats": {
                     "segments": len(result["segments"]),
                     "speakers": len(set(s["speaker"] for s in diarization_data)),
