@@ -432,6 +432,37 @@ class AudioTranscription(Module):
             (r'\s+oh[,\s]+', ' '),  # " oh, "
             (r'\s+just[,\s]+', ' '),  # " just, " or " just " - careful, can be meaningful
             (r'^just[,\s]+', ''),  # "Just, " at start
+            
+            # Phrase fillers
+            (r'\s+or\s+something\b', ''),  # " or something"
+            (r'\s+or\s+whatever\b', ''),  # " or whatever"
+            (r'\s+and\s+stuff\b', ''),  # " and stuff"
+            (r'\s+and\s+everything\b', ''),  # " and everything"
+            (r'\s+and\s+all\s+that\b', ''),  # " and all that"
+            
+            # Repetitive transitions (consecutive occurrences)
+            (r'\s+and\s+then\s+and\s+then\b', ' and then'),  # "and then and then"
+            (r'\s+yeah,?\s+yeah,?\s+yeah\b', ' yeah'),  # "yeah yeah yeah" → single "yeah"
+            (r'\s+yeah\s+yeah\b', ' yeah'),  # "yeah yeah" → single
+            
+            # Transition fillers at sentence start
+            (r'\s+and\s+so\b', ''),  # " and so"
+            (r'\s+but\s+yeah\b', ''),  # " but yeah" (redundant agreement)
+            (r'\s+so\s+yeah\b', ''),  # " so yeah"
+            
+            # Filler combos
+            (r'\s+right,?\s+yeah\b', ''),  # " right, yeah" or " right yeah"
+            (r'\s+yeah,?\s+right\b', ''),  # " yeah, right"
+            
+            # Excessive ellipses
+            (r'…\s*…', '…'),  # "… …" → single ellipsis
+            (r'\.\.\.\s*\.\.\.', '...'),  # "... ..." → single
+            
+            # Colloquial patterns
+            (r"\s+it's\s+like\b", ''),  # " it's like"
+            (r"^it's\s+like\b", ''),  # "It's like" at start
+            (r'\s+kind\s+of[-\s]*[-—]', ' '),  # "kind of ---" with dashes
+            (r'\s+sort\s+of[-\s]*[-—]', ' '),  # "sort of ---"
         ]
         
         result = text
