@@ -230,21 +230,15 @@ class AudioTranscription(Module):
             await self.log(f"FFmpeg conversion failed: {e}", level="ERROR")
             return None
 
-        async def _diarize(
-            self, 
-            wav_path: Path, 
-            hf_token: str,
-            min_speakers: int,
-            max_speakers: int,
-    ) -> list[dict]:
+    async def _diarize(self, wav_path: Path, hf_token: str, min_speakers: int, max_speakers: int) -> list[dict]:
         """Perform speaker diarization using PyAnnote community-1."""
         os.environ["HF_TOKEN"] = hf_token
         
-            def _run_diarization():
-                    pipeline = Pipeline.from_pretrained(
-                        "pyannote/speaker-diarization-community-1",
-                        use_auth_token=hf_token,
-                    )
+        def _run_diarization():
+            pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-community-1",
+                use_auth_token=hf_token,
+            )
             
             output = pipeline(str(wav_path))
             
@@ -267,31 +261,31 @@ class AudioTranscription(Module):
     ) -> list[dict]:
         """Combine Whisper segments with speaker labels."""
         combined = []
-        
+
         for seg in segments:
             seg_start = seg["start"]
             seg_end = seg["end"]
             seg_text = seg["text"].strip()
-            
+
             # Find speakers for this segment
             speakers = set()
             for d in diarization:
                 # Check if diarization segment overlaps with transcription segment
                 if d["start"] < seg_end and d["end"] > seg_start:
                     speakers.add(d["speaker"])
-            
+
             # Use most common speaker or "UNKNOWN"
             speaker = list(speakers)[0] if len(speakers) == 1 else (
                 "MULTIPLE" if len(speakers) > 1 else "UNKNOWN"
             )
-            
+
             combined.append({
                 "start": seg_start,
                 "end": seg_end,
                 "text": seg_text,
                 "speaker": speaker,
             })
-        
+
         return combined
 
     def _format_speaker_text(self, combined: list[dict]) -> str:
@@ -299,19 +293,19 @@ class AudioTranscription(Module):
         lines = []
         current_speaker = None
         current_text = []
-        
+
         for seg in combined:
             if seg["speaker"] != current_speaker:
                 if current_speaker and current_text:
                     lines.append(f"[{current_speaker}] {' '.join(current_text)}")
                 current_speaker = seg["speaker"]
                 current_text = []
-            
+
             current_text.append(seg["text"])
-        
+
         if current_speaker and current_text:
             lines.append(f"[{current_speaker}] {' '.join(current_text)}")
-        
+
         return "\n\n".join(lines)
 
     def _to_srt(self, segments: list[dict]) -> str:
