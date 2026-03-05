@@ -406,6 +406,7 @@ class AudioTranscription(Module):
         # More aggressive patterns first, then simpler ones
         patterns = [
             # Multi-word fillers (more specific first)
+            (r',?\s*you know\?[\s,]*', '.'),  # ", you know?" or "you know?" → "."
             (r'\byou know[,\s]*\s*', ''),  # "you know, " or "you know "
             (r'\bI mean[,\s]*\s*', ''),    # "I mean, " or "I mean "
             (r'\bkind of\s+', ''),          # "kind of " (when used as filler)
