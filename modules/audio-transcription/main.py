@@ -76,6 +76,7 @@ class AudioTranscription(Module):
         whisper_txt = output_base.with_suffix(".whisper.txt")
         whisper_json = output_base.with_suffix(".whisper.json")
         whisper_srt = output_base.with_suffix(".whisper.srt")
+        whisper_vtt = output_base.with_suffix(".whisper.vtt")
         
         with open(whisper_txt, "w") as f:
             f.write(result["text"])
@@ -86,6 +87,9 @@ class AudioTranscription(Module):
         with open(whisper_srt, "w") as f:
             f.write(self._to_srt(result["segments"]))
         
+        with open(whisper_vtt, "w") as f:
+            f.write(self._to_vtt(result["segments"]))
+        
         await self.log(f"Whisper transcription complete")
         await self.save_checkpoint(
             stage="transcribed",
@@ -95,6 +99,7 @@ class AudioTranscription(Module):
 
         # Step 3: Speaker diarization (if enabled)
         diarization_data = None
+        diarization_json = None
         if should_diarize:
             if not hf_token:
                 await self.log(
@@ -142,6 +147,7 @@ class AudioTranscription(Module):
                     "transcription": str(whisper_txt),
                     "transcription_json": str(whisper_json),
                     "transcription_srt": str(whisper_srt),
+                    "transcription_vtt": str(whisper_vtt),
                     "diarization": str(diarization_json),
                     "combined_txt": str(combined_txt),
                     "combined_json": str(combined_json),
@@ -161,6 +167,7 @@ class AudioTranscription(Module):
                     "transcription": str(whisper_txt),
                     "transcription_json": str(whisper_json),
                     "transcription_srt": str(whisper_srt),
+                    "transcription_vtt": str(whisper_vtt),
                 },
                 "stats": {
                     "segments": len(result["segments"]),
@@ -306,6 +313,25 @@ class AudioTranscription(Module):
             lines.append(seg["text"].strip())
             lines.append("")
         return "\n".join(lines)
+
+    def _to_vtt(self, segments: list[dict]) -> str:
+        """Convert segments to WebVTT format."""
+        lines = ["WEBVTT", ""]
+        for seg in segments:
+            start = self._format_vtt_time(seg["start"])
+            end = self._format_vtt_time(seg["end"])
+            lines.append(f"{start} --> {end}")
+            lines.append(seg["text"].strip())
+            lines.append("")
+        return "\n".join(lines)
+
+    def _format_vtt_time(self, seconds: float) -> str:
+        """Format seconds as WebVTT timecode."""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        millis = int((seconds % 1) * 1000)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
 
     def _format_time(self, seconds: float) -> str:
         """Format seconds as SRT timecode."""
