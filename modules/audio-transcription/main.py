@@ -37,6 +37,7 @@ class AudioTranscription(Module):
         should_diarize = inputs.get("diarize", True)
         min_speakers = inputs.get("min_speakers", 2)
         max_speakers = inputs.get("max_speakers", 10)
+        skip_transcription = inputs.get("skip_transcription", False)
         hf_token = settings.get("hf_token") or os.environ.get("HF_TOKEN")
 
         if not audio_path.exists():
@@ -60,37 +61,45 @@ class AudioTranscription(Module):
         await self.log(f"Audio converted to: {wav_path}")
         await self.save_checkpoint(stage="converted", wav_path=str(wav_path))
 
-        # Step 2: Transcribe with Whisper
-        await self.log("Loading Whisper model...")
-        model = await asyncio.to_thread(whisper.load_model, model_size)
-        
-        await self.log("Transcribing audio...")
-        result = await asyncio.to_thread(
-            model.transcribe,
-            str(wav_path),
-            language=None if language == "auto" else language,
-            verbose=False,
-        )
-        
-        # Save Whisper output
+        # Step 2: Transcribe with Whisper (or load existing)
         whisper_txt = output_base.with_suffix(".whisper.txt")
         whisper_json = output_base.with_suffix(".whisper.json")
         whisper_srt = output_base.with_suffix(".whisper.srt")
         whisper_vtt = output_base.with_suffix(".whisper.vtt")
         
-        with open(whisper_txt, "w") as f:
-            f.write(result["text"])
+        # Check for existing transcription
+        if skip_transcription and whisper_json.exists():
+            await self.log("Loading existing transcription (skip_transcription=true)")
+            with open(whisper_json) as f:
+                result = json.load(f)
+            await self.log(f"Loaded existing transcription: {len(result['segments'])} segments")
+        else:
+            await self.log("Loading Whisper model...")
+            model = await asyncio.to_thread(whisper.load_model, model_size)
+            
+            await self.log("Transcribing audio...")
+            result = await asyncio.to_thread(
+                model.transcribe,
+                str(wav_path),
+                language=None if language == "auto" else language,
+                verbose=False,
+            )
+            
+            # Save Whisper output
+            with open(whisper_txt, "w") as f:
+                f.write(result["text"])
+            
+            with open(whisper_json, "w") as f:
+                json.dump(result, f, indent=2)
+            
+            with open(whisper_srt, "w") as f:
+                f.write(self._to_srt(result["segments"]))
+            
+            with open(whisper_vtt, "w") as f:
+                f.write(self._to_vtt(result["segments"]))
+            
+            await self.log(f"Whisper transcription complete")
         
-        with open(whisper_json, "w") as f:
-            json.dump(result, f, indent=2)
-        
-        with open(whisper_srt, "w") as f:
-            f.write(self._to_srt(result["segments"]))
-        
-        with open(whisper_vtt, "w") as f:
-            f.write(self._to_vtt(result["segments"]))
-        
-        await self.log(f"Whisper transcription complete")
         await self.save_checkpoint(
             stage="transcribed",
             text_file=str(whisper_txt),

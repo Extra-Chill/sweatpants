@@ -51,6 +51,13 @@
       "required": false,
       "default": 10,
       "description": "Maximum number of speakers (for diarization)"
+    },
+    {
+      "id": "skip_transcription",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "Skip Whisper transcription if transcription files already exist (useful for re-running diarization only)"
     }
   ],
   "settings": [
