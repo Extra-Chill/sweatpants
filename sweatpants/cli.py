@@ -117,6 +117,9 @@ def run(
     inputs: Optional[list[str]] = typer.Option(
         None, "--input", "-i", help="Input values as key=value pairs"
     ),
+    settings_opt: Optional[list[str]] = typer.Option(
+        None, "--setting", "-s", help="Settings as key=value pairs"
+    ),
     duration: Optional[str] = typer.Option(
         None, "--duration", "-d", help="Auto-stop after duration (e.g., 30m, 2h, 24h, 7d)"
     ),
@@ -134,7 +137,14 @@ def run(
                 key, value = item.split("=", 1)
                 input_data[key] = value
 
-    request_body = {"module_id": module_id, "inputs": input_data}
+    settings_data = {}
+    if settings_opt:
+        for item in settings_opt:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                settings_data[key] = value
+
+    request_body = {"module_id": module_id, "inputs": input_data, "settings": settings_data}
     if duration:
         request_body["max_duration"] = duration
 
