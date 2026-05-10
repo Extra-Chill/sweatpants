@@ -39,6 +39,29 @@ sweatpants run audio-transcription \
 
 **Time**: ~3 hours (large model) + ~15 min (diarization)
 
+### Cross-host: Fetch Audio from a URL
+
+When the audio file lives on a different host (for example a WordPress media library), pass `audio_url` instead of `audio_path`. The module downloads the file into `output_dir`, runs the normal transcription pipeline, and deletes the downloaded source when the job finishes.
+
+```bash
+curl -X POST https://sweatpants.example.com/jobs \
+  -H "Authorization: Bearer $SWEATPANTS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "module": "audio-transcription",
+    "inputs": {
+      "audio_url": "https://studio.extrachill.com/wp-content/uploads/2026/05/interview.mp3",
+      "output_dir": "/var/sweatpants/output",
+      "model": "large",
+      "diarize": true,
+      "remove_fillers": true
+    },
+    "settings": {"hf_token": "YOUR_HF_TOKEN"}
+  }'
+```
+
+If the URL requires authentication, also set `audio_url_auth_header` (e.g. `"Bearer xxxxx"`). `audio_url` takes precedence over `audio_path` when both are provided.
+
 ## Workflow Options
 
 ### 1. Transcription Only (No Speakers)
@@ -110,8 +133,10 @@ sweatpants run audio-transcription \
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `audio_path` | text | Yes* | - | Path to audio file (mp3, m4a, wav, etc.) |
+| `audio_url` | text | Yes* | - | HTTP(S) URL to fetch audio from. Downloaded into `output_dir` before transcription. Takes precedence over `audio_path`. |
+| `audio_url_auth_header` | text | No | - | Optional `Authorization` header sent with `audio_url` request (e.g. `Bearer xxxxx`). |
 | `output_dir` | text | Yes | - | Directory to save output files |
-| `text_input` | text | No | - | Process existing transcript (skips audio) |
+| `text_input` | text | Yes* | - | Process existing transcript (skips audio) |
 | `model` | text | No | base | Whisper model: tiny, base, small, medium, large |
 | `language` | text | No | en | Language code (en, es, auto) |
 | `diarize` | boolean | No | true | Perform speaker diarization |
@@ -120,7 +145,7 @@ sweatpants run audio-transcription \
 | `min_speakers` | integer | No | 2 | Minimum speakers for diarization |
 | `max_speakers` | integer | No | 10 | Maximum speakers for diarization |
 
-*Required unless using `text_input` mode
+*Exactly one of `audio_url`, `audio_path`, or `text_input` must be provided.
 
 ## Settings
 
