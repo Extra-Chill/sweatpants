@@ -2,6 +2,70 @@
 
 FastAPI REST API exposed by the Sweatpants daemon on port 8420.
 
+## Authentication
+
+Every endpoint requires `Authorization: Bearer <token>`. Two credential
+types are accepted:
+
+### Master token
+
+Static admin token set via `SWEATPANTS_API_AUTH_TOKEN`. Full access to
+every endpoint (implicit `*` scope). Use for orchestration / ops /
+trusted server-to-server callers.
+
+### Signed token
+
+Short-lived per-user token minted by a trusted issuer using HMAC-SHA256
+over a shared secret (`SWEATPANTS_API_SIGNED_TOKEN_SECRET`).
+
+**Format:** `<base64url(payload_json)>.<base64url(hmac_sha256(secret, payload_b64))>`
+
+**Payload (JSON):**
+```json
+{
+  "iss": "extrachill",
+  "sub": 5,
+  "scope": "uploads:write jobs:write jobs:read",
+  "exp": 1730000900,
+  "jti": "8f2c1e9a4b7d4e5fa6b8c9d0e1f2a3b4"
+}
+```
+
+| Field | Required | Meaning |
+|---|---|---|
+| `iss` | optional | Opaque issuer id (logged for audit, not validated) |
+| `sub` | **required** | Subject — user id (positive int) the token represents |
+| `scope` | **required** | Space-separated capability strings |
+| `exp` | **required** | Unix timestamp; rejected if past |
+| `jti` | optional | Token id, reserved for future revocation lists |
+
+The signature is computed over the **base64url-encoded payload string**,
+not the decoded JSON — issuers and validators agree byte-for-byte
+regardless of JSON whitespace.
+
+### Scopes
+
+| Scope | Grants |
+|---|---|
+| `read` | `GET /status`, `GET /modules`, `GET /modules/{id}` |
+| `jobs:read` | `GET /jobs`, `GET /jobs/{id}`, `GET /jobs/{id}/logs`, `GET /jobs/{id}/results`, WS log stream |
+| `jobs:write` | `POST /jobs`, `POST /jobs/{id}/stop` |
+| `uploads:read` | `GET /uploads/{id}` |
+| `uploads:write` | `POST /uploads`, `DELETE /uploads/{id}` |
+| `modules:admin` | All `POST /modules/*` + `DELETE /modules/{id}` |
+| `callbacks:admin` | All `/callbacks*` |
+| `proxy:fetch` | `POST /proxy-fetch` |
+| `*` | All of the above (implicit for the master token) |
+
+A typical browser-side client doing audio transcription needs:
+`uploads:write jobs:write jobs:read`.
+
+### WebSocket auth
+
+Browsers can't send Authorization headers on WS handshakes. The
+`/jobs/{id}/logs/stream` endpoint accepts the token via a `?token=<bearer>`
+query parameter instead. Same validation, same scope rules (`jobs:read`).
+
 ## Status
 
 ### GET /status

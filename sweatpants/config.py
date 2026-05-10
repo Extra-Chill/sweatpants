@@ -47,7 +47,16 @@ class Settings(BaseSettings):
 
     api_host: str = "127.0.0.1"
     api_port: int = 8420
+    # Master admin token — full access to every endpoint. Used by orchestration
+    # callers (CLI, ops scripts, trusted server-side code). Compare with
+    # `api_signed_token_secret` below which is the HMAC key for short-lived
+    # per-user scoped tokens.
     api_auth_token: str = ""
+    # Shared secret used to validate signed bearer tokens minted by trusted
+    # issuers (e.g. a WordPress plugin signing a short-lived "uploads:write"
+    # token for an authenticated user). Empty disables signed-token auth;
+    # only the master token is accepted in that case.
+    api_signed_token_secret: str = ""
 
     proxy_url: str = ""  # Full URL: http://user:pass@host:port
     proxy_rotation_url: str = ""  # URL pattern for sticky sessions: http://user-session-{session}:pass@host:port

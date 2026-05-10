@@ -199,7 +199,8 @@ Environment variables (prefix `SWEATPANTS_`):
 | `DB_PATH` | `/var/lib/sweatpants/sweatpants.db` | SQLite database |
 | `API_HOST` | `127.0.0.1` | API bind host |
 | `API_PORT` | `8420` | API port |
-| `API_AUTH_TOKEN` | *(unset)* | API authentication token |
+| `API_AUTH_TOKEN` | *(unset)* | Master token. Full access to every endpoint. |
+| `API_SIGNED_TOKEN_SECRET` | *(unset)* | Shared secret for HMAC-SHA256 signed tokens. Trusted issuers (e.g. WordPress plugins) mint short-lived scoped tokens by signing a JSON payload with this secret. |
 | `PROXY_URL` | *(unset)* | Rotating proxy URL |
 | `PROXY_ROTATION_URL` | *(unset)* | Sticky session URL pattern |
 | `BROWSER_POOL_SIZE` | `3` | Concurrent browser instances |

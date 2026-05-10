@@ -7,16 +7,21 @@ import uuid
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from sweatpants.api.auth import get_auth_principal, require_scope
 from sweatpants.api.scheduler import get_scheduler
 from sweatpants.config import get_settings
 from sweatpants.engine.module_loader import ModuleLoader
 from sweatpants.engine.state import StateManager
 from sweatpants.proxy.client import proxied_request
 
-router = APIRouter()
+# All routes require an authenticated principal. Per-route scope requirements
+# are enforced via `dependencies=[Depends(require_scope("..."))]` on each
+# decorator. Endpoints without an explicit scope inherit only the principal
+# resolution and are accessible to any valid token (e.g. health checks).
+router = APIRouter(dependencies=[Depends(get_auth_principal)])
 
 
 class JobCreateRequest(BaseModel):
@@ -73,14 +78,14 @@ class CallbackRequest(BaseModel):
     payload: dict[str, Any] = {}
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_scope("read"))])
 async def get_status() -> dict:
     """Get engine status and running jobs."""
     scheduler = get_scheduler()
     return await scheduler.get_status()
 
 
-@router.get("/modules")
+@router.get("/modules", dependencies=[Depends(require_scope("read"))])
 async def list_modules() -> dict:
     """List installed modules."""
     loader = ModuleLoader()
@@ -88,7 +93,7 @@ async def list_modules() -> dict:
     return {"modules": modules}
 
 
-@router.get("/modules/{module_id}")
+@router.get("/modules/{module_id}", dependencies=[Depends(require_scope("read"))])
 async def get_module(module_id: str) -> dict:
     """Get module details."""
     loader = ModuleLoader()
@@ -98,7 +103,7 @@ async def get_module(module_id: str) -> dict:
     return module
 
 
-@router.post("/modules/install")
+@router.post("/modules/install", dependencies=[Depends(require_scope("modules:admin"))])
 async def install_module(request: ModuleInstallRequest) -> dict:
     """Install a module from a directory."""
     loader = ModuleLoader()
@@ -115,7 +120,7 @@ async def install_module(request: ModuleInstallRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/modules/install-git")
+@router.post("/modules/install-git", dependencies=[Depends(require_scope("modules:admin"))])
 async def install_module_git(request: ModuleInstallGitRequest) -> dict:
     """Install a module from a git repository."""
     loader = ModuleLoader()
@@ -137,7 +142,7 @@ async def install_module_git(request: ModuleInstallGitRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/modules/{module_id}")
+@router.delete("/modules/{module_id}", dependencies=[Depends(require_scope("modules:admin"))])
 async def uninstall_module(module_id: str) -> dict:
     """Uninstall a module."""
     loader = ModuleLoader()
@@ -147,7 +152,7 @@ async def uninstall_module(module_id: str) -> dict:
     return {"status": "uninstalled", "module_id": module_id}
 
 
-@router.post("/modules/sync")
+@router.post("/modules/sync", dependencies=[Depends(require_scope("modules:admin"))])
 async def sync_modules() -> dict:
     """Sync modules from configured module sources.
 
@@ -167,7 +172,7 @@ async def sync_modules() -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/modules/reload")
+@router.post("/modules/reload", dependencies=[Depends(require_scope("modules:admin"))])
 async def reload_modules() -> dict:
     """Reload all modules from disk without restarting.
 
@@ -183,7 +188,7 @@ async def reload_modules() -> dict:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/jobs")
+@router.post("/jobs", dependencies=[Depends(require_scope("jobs:write"))])
 async def create_job(request: JobCreateRequest) -> dict:
     """Start a new job."""
     scheduler = get_scheduler()
@@ -199,7 +204,7 @@ async def create_job(request: JobCreateRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/jobs")
+@router.get("/jobs", dependencies=[Depends(require_scope("jobs:read"))])
 async def list_jobs(status: Optional[str] = None) -> dict:
     """List jobs, optionally filtered by status."""
     state = StateManager()
@@ -207,7 +212,7 @@ async def list_jobs(status: Optional[str] = None) -> dict:
     return {"jobs": jobs}
 
 
-@router.get("/jobs/{job_id}")
+@router.get("/jobs/{job_id}", dependencies=[Depends(require_scope("jobs:read"))])
 async def get_job(job_id: str) -> dict:
     """Get job details."""
     state = StateManager()
@@ -217,7 +222,7 @@ async def get_job(job_id: str) -> dict:
     return job
 
 
-@router.post("/jobs/{job_id}/stop")
+@router.post("/jobs/{job_id}/stop", dependencies=[Depends(require_scope("jobs:write"))])
 async def stop_job(job_id: str) -> dict:
     """Stop a running job."""
     scheduler = get_scheduler()
@@ -227,7 +232,7 @@ async def stop_job(job_id: str) -> dict:
     return {"status": "stopped", "job_id": job_id}
 
 
-@router.get("/jobs/{job_id}/logs")
+@router.get("/jobs/{job_id}/logs", dependencies=[Depends(require_scope("jobs:read"))])
 async def get_logs(job_id: str, limit: int = 100) -> dict:
     """Get logs for a job."""
     state = StateManager()
@@ -240,8 +245,26 @@ async def get_logs(job_id: str, limit: int = 100) -> dict:
 
 
 @router.websocket("/jobs/{job_id}/logs/stream")
-async def stream_logs(websocket: WebSocket, job_id: str) -> None:
-    """Stream logs for a job via WebSocket."""
+async def stream_logs(websocket: WebSocket, job_id: str, token: Optional[str] = None) -> None:
+    """Stream logs for a job via WebSocket.
+
+    Browsers can't send Authorization headers on WS handshakes, so this
+    endpoint accepts the token via `?token=<bearer>` query param and
+    validates it against the same auth surface as HTTP routes. The token
+    must have the `jobs:read` scope.
+    """
+    # Validate auth out-of-band — FastAPI WS deps that read headers can't
+    # be applied at the router-level `dependencies=[]` array.
+    from sweatpants.api.auth import get_auth_principal, _unauthorized
+    try:
+        principal = get_auth_principal(authorization=f"Bearer {token}" if token else None)
+    except HTTPException:
+        await websocket.close(code=4401, reason="unauthorized")
+        return
+    if not principal.has_scope("jobs:read"):
+        await websocket.close(code=4403, reason="forbidden")
+        return
+
     await websocket.accept()
 
     state = StateManager()
@@ -266,7 +289,7 @@ async def stream_logs(websocket: WebSocket, job_id: str) -> None:
         scheduler.unsubscribe_logs(job["id"], queue)
 
 
-@router.get("/jobs/{job_id}/results")
+@router.get("/jobs/{job_id}/results", dependencies=[Depends(require_scope("jobs:read"))])
 async def get_results(job_id: str, limit: int = 1000) -> dict:
     """Get results for a job."""
     state = StateManager()
@@ -279,7 +302,7 @@ async def get_results(job_id: str, limit: int = 1000) -> dict:
     return {"results": results, "total": count}
 
 
-@router.post("/proxy-fetch", response_model=ProxyFetchResponse)
+@router.post("/proxy-fetch", response_model=ProxyFetchResponse, dependencies=[Depends(require_scope("proxy:fetch"))])
 async def proxy_fetch(request: ProxyFetchRequest) -> ProxyFetchResponse:
     """Forward HTTP request through Bright Data proxy.
 
@@ -309,7 +332,7 @@ async def proxy_fetch(request: ProxyFetchRequest) -> ProxyFetchResponse:
         )
 
 
-@router.post("/callbacks")
+@router.post("/callbacks", dependencies=[Depends(require_scope("callbacks:admin"))])
 async def receive_callback(request: CallbackRequest) -> dict:
     """Receive a callback from an external source.
 
@@ -325,7 +348,7 @@ async def receive_callback(request: CallbackRequest) -> dict:
     return {"id": cb_id, "received": True}
 
 
-@router.get("/callbacks")
+@router.get("/callbacks", dependencies=[Depends(require_scope("callbacks:admin"))])
 async def list_callbacks(
     source: Optional[str] = None,
     callback_id: Optional[str] = None,
@@ -341,7 +364,7 @@ async def list_callbacks(
     return {"callbacks": callbacks}
 
 
-@router.get("/callbacks/{cb_id}")
+@router.get("/callbacks/{cb_id}", dependencies=[Depends(require_scope("callbacks:admin"))])
 async def get_callback(cb_id: str) -> dict:
     """Get a specific callback by ID."""
     state = StateManager()
@@ -351,7 +374,7 @@ async def get_callback(cb_id: str) -> dict:
     return callback
 
 
-@router.delete("/callbacks/{cb_id}")
+@router.delete("/callbacks/{cb_id}", dependencies=[Depends(require_scope("callbacks:admin"))])
 async def delete_callback(cb_id: str) -> dict:
     """Delete a callback by ID."""
     state = StateManager()
@@ -403,7 +426,7 @@ def _sanitize_filename(filename: str) -> str:
     return cleaned or "upload.bin"
 
 
-@router.post("/uploads")
+@router.post("/uploads", dependencies=[Depends(require_scope("uploads:write"))])
 async def create_upload(file: UploadFile = File(...)) -> dict:
     """Accept a multipart file upload, store it under a job-scoped tempdir.
 
@@ -491,7 +514,7 @@ def _resolve_upload_dir(upload_id: str) -> Path:
     return upload_dir
 
 
-@router.get("/uploads/{upload_id}")
+@router.get("/uploads/{upload_id}", dependencies=[Depends(require_scope("uploads:read"))])
 async def get_upload(upload_id: str) -> dict:
     """Get metadata for an uploaded file.
 
@@ -515,7 +538,7 @@ async def get_upload(upload_id: str) -> dict:
     }
 
 
-@router.delete("/uploads/{upload_id}")
+@router.delete("/uploads/{upload_id}", dependencies=[Depends(require_scope("uploads:write"))])
 async def delete_upload(upload_id: str) -> dict:
     """Delete an uploaded file and its containing directory.
 
