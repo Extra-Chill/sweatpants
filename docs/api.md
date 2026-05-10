@@ -213,3 +213,66 @@ Forward HTTP request through the configured proxy.
   "headers": {}
 }
 ```
+
+## Uploads
+
+For headless-compute pipelines where the client doesn't want to keep the
+raw input artifact (e.g. a browser uploading audio for transcription, where
+only the resulting transcript is kept). Clients POST the file directly to
+the daemon, get back a job-scoped local path, and pass that path as a
+module input when creating the job.
+
+### POST /uploads
+
+Accept a multipart file upload, store it under a job-scoped tempdir.
+
+**Request:** `multipart/form-data` with a `file` field.
+
+```bash
+curl -X POST https://your-host/uploads \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@/path/to/recording.m4a"
+```
+
+**Response:**
+```json
+{
+  "upload_id": "8f2c1e9a4b7d4e5fa6b8c9d0e1f2a3b4",
+  "path": "/var/lib/sweatpants/uploads/8f2c.../recording.m4a",
+  "filename": "recording.m4a",
+  "size_bytes": 1245789,
+  "mime_type": "audio/mp4",
+  "created_at": 1720000000
+}
+```
+
+The `path` value can be passed directly as a module input (e.g.
+`audio-transcription`'s `audio_path`).
+
+**Limits:**
+- Max size: `SWEATPANTS_UPLOADS_MAX_BYTES` (default 500 MB)
+- Files are written to disk in 1 MB chunks; oversized uploads return
+  HTTP 413 mid-stream once the cap is exceeded
+- Unclaimed uploads may be garbage-collected after `SWEATPANTS_UPLOADS_TTL_HOURS`
+  (default 24h)
+
+### GET /uploads/{upload_id}
+
+Get metadata for an uploaded file. Does **not** stream the file content
+(modules consume it via direct filesystem read using the returned `path`).
+
+**Response:**
+```json
+{
+  "upload_id": "8f2c1e9a4b7d4e5fa6b8c9d0e1f2a3b4",
+  "path": "/var/lib/sweatpants/uploads/8f2c.../recording.m4a",
+  "filename": "recording.m4a",
+  "size_bytes": 1245789,
+  "created_at": 1720000000
+}
+```
+
+### DELETE /uploads/{upload_id}
+
+Delete an uploaded file and its containing directory. Idempotent —
+calling on a missing upload still returns `{"status":"deleted"}`.

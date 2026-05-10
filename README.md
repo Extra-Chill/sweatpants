@@ -166,6 +166,9 @@ GET  /jobs/<id>/results     - Get results
 POST /proxy-fetch           - Forward HTTP requests through proxy
 POST /callbacks             - Receive orchestration callbacks
 GET  /callbacks/<id>        - Get callback status
+POST /uploads               - Upload a file for use as a module input
+GET  /uploads/<id>          - Get upload metadata
+DELETE /uploads/<id>        - Delete an upload
 ```
 
 ## Module Sources
@@ -190,6 +193,9 @@ Environment variables (prefix `SWEATPANTS_`):
 |----------|---------|-------------|
 | `DATA_DIR` | `/var/lib/sweatpants` | Data directory |
 | `MODULES_DIR` | `/var/lib/sweatpants/modules` | Installed modules |
+| `UPLOADS_DIR` | `<DATA_DIR>/uploads` | Storage for files uploaded via `POST /uploads` |
+| `UPLOADS_MAX_BYTES` | `524288000` (500 MB) | Per-upload size cap |
+| `UPLOADS_TTL_HOURS` | `24` | Hours before unclaimed uploads are eligible for GC |
 | `DB_PATH` | `/var/lib/sweatpants/sweatpants.db` | SQLite database |
 | `API_HOST` | `127.0.0.1` | API bind host |
 | `API_PORT` | `8420` | API port |
