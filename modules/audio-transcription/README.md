@@ -169,6 +169,36 @@ sweatpants run audio-transcription \
 ### Clean Files (if remove_fillers=true)
 - `{base}.speakers.clean.txt` - Filler-free speaker transcript
 
+### Inline Content in Job Results
+
+Job results (returned by `GET /jobs/{id}/results`) include both the file
+**paths** on the worker filesystem and the file **contents** inlined as
+strings, keyed by the same labels:
+
+```json
+{
+  "results": [{
+    "data": {
+      "status": "complete",
+      "files": {
+        "transcription": "/var/lib/sweatpants/output/.../foo.whisper.txt",
+        "transcription_srt": "/var/lib/sweatpants/output/.../foo.whisper.srt"
+      },
+      "content": {
+        "transcription": "And so, my fellow Americans, ask not...",
+        "transcription_srt": "1\n00:00:00,000 --> 00:00:11,000\n..."
+      }
+    }
+  }]
+}
+```
+
+This lets cross-host clients consume transcripts directly from the API
+without needing filesystem access to the worker. Files larger than 5 MB or
+with non-text extensions are omitted from `content` (still listed under
+`files`). The `files` paths remain authoritative — `content` is a
+convenience for small-payload pipelines.
+
 ## Filler Words Removed
 
 The `remove_fillers` option targets:

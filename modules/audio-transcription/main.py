@@ -80,12 +80,14 @@ class AudioTranscription(Module):
                 
                 await self.log(f"Clean transcript saved: {output_path}")
                 
+                output_files = {
+                    "input": str(text_path),
+                    "output": str(output_path),
+                }
                 yield {
                     "status": "complete",
-                    "files": {
-                        "input": str(text_path),
-                        "output": str(output_path),
-                    },
+                    "files": output_files,
+                    "content": self._read_inline_content(output_files),
                     "stats": {
                         "original_chars": len(content),
                         "clean_chars": len(clean_content),
@@ -94,9 +96,11 @@ class AudioTranscription(Module):
                 }
             else:
                 await self.log("No text processing requested (set remove_fillers=true)")
+                output_files = {"input": str(text_path)}
                 yield {
                     "status": "complete",
-                    "files": {"input": str(text_path)},
+                    "files": output_files,
+                    "content": self._read_inline_content(output_files),
                     "message": "No processing requested",
                 }
             
@@ -261,6 +265,7 @@ class AudioTranscription(Module):
             yield {
                 "status": "complete",
                 "files": output_files,
+                "content": self._read_inline_content(output_files),
                 "stats": {
                     "segments": len(result["segments"]),
                     "speakers": len(set(s["speaker"] for s in diarization_data)),
@@ -270,14 +275,17 @@ class AudioTranscription(Module):
         else:
             await self.save_checkpoint(stage="complete", has_speakers=False)
             
+            output_files = {
+                "transcription": str(whisper_txt),
+                "transcription_json": str(whisper_json),
+                "transcription_srt": str(whisper_srt),
+                "transcription_vtt": str(whisper_vtt),
+            }
+
             yield {
                 "status": "complete",
-                "files": {
-                    "transcription": str(whisper_txt),
-                    "transcription_json": str(whisper_json),
-                    "transcription_srt": str(whisper_srt),
-                    "transcription_vtt": str(whisper_vtt),
-                },
+                "files": output_files,
+                "content": self._read_inline_content(output_files),
                 "stats": {
                     "segments": len(result["segments"]),
                     "speakers": None,
@@ -294,6 +302,55 @@ class AudioTranscription(Module):
         if downloaded_audio_path is not None and downloaded_audio_path.exists():
             downloaded_audio_path.unlink(missing_ok=True)
             await self.log(f"Downloaded source file cleaned up: {downloaded_audio_path.name}")
+
+    # Maximum number of bytes to inline per text artifact in the result payload.
+    # Files larger than this are still produced on disk and listed in `files`,
+    # but skipped from the inlined `content` map. 5 MB is generous for transcripts
+    # (a 10-hour interview is roughly 1 MB of plain text) but keeps result rows
+    # bounded if a future module produces unusually large artifacts.
+    _MAX_INLINE_CONTENT_BYTES = 5 * 1024 * 1024
+
+    # File extensions that are safe to inline as UTF-8 text. Other extensions
+    # (e.g. binary diarization JSONs that are technically text but verbose, or
+    # SRT/VTT which are useful but secondary) are NOT inlined by default — they
+    # remain on disk for clients that want them via a future artifact-fetch path.
+    _INLINE_TEXT_EXTENSIONS = (".txt", ".srt", ".vtt", ".json")
+
+    def _read_inline_content(self, file_paths: dict[str, str]) -> dict[str, str]:
+        """Read text artifacts into a content map keyed by the same labels as files.
+
+        Reads each path under `file_paths`, returning a dict with the same keys.
+        Files larger than `_MAX_INLINE_CONTENT_BYTES` are skipped (the key is
+        omitted from the result, not nulled). Files that fail to read for any
+        reason (missing, permission denied, decode error) are also skipped.
+
+        This lets cross-host clients consume transcripts directly from the
+        results endpoint without needing filesystem access to the worker. The
+        on-disk files remain authoritative; this map is a convenience for
+        small-payload pipelines.
+
+        Args:
+            file_paths: Map of label → absolute path on the worker filesystem.
+
+        Returns:
+            Map of label → file contents (str), with skipped files omitted.
+        """
+        content: dict[str, str] = {}
+        for label, path_str in file_paths.items():
+            try:
+                p = Path(path_str)
+                if not p.exists():
+                    continue
+                if p.suffix.lower() not in self._INLINE_TEXT_EXTENSIONS:
+                    continue
+                size = p.stat().st_size
+                if size > self._MAX_INLINE_CONTENT_BYTES:
+                    continue
+                content[label] = p.read_text(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                # Best-effort inlining; failure to inline is not a job failure.
+                continue
+        return content
 
     async def _download_audio_url(
         self,
