@@ -1,12 +1,17 @@
 """API routes for Sweatpants."""
 
 import asyncio
+import shutil
+import time
+import uuid
+from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from sweatpants.api.scheduler import get_scheduler
+from sweatpants.config import get_settings
 from sweatpants.engine.module_loader import ModuleLoader
 from sweatpants.engine.state import StateManager
 from sweatpants.proxy.client import proxied_request
@@ -354,3 +359,180 @@ async def delete_callback(cb_id: str) -> dict:
     if not success:
         raise HTTPException(status_code=404, detail="Callback not found")
     return {"status": "deleted", "id": cb_id}
+
+
+# ---------------------------------------------------------------------------
+# Uploads
+# ---------------------------------------------------------------------------
+#
+# Headless-compute pattern: clients POST audio/video/data directly here, get
+# back a job-scoped local path, then submit a job referencing that path. This
+# avoids the round-trip of "upload to your own WP install, then have sweatpants
+# fetch it back over HTTP" — useful when the client doesn't want to keep the
+# raw file (e.g. a Studio plugin that only cares about the transcript output).
+#
+# Storage layout: <uploads_dir>/<upload_id>/<sanitized_filename>
+# - upload_id is a UUID4 (job-scoped tempdir)
+# - sanitized filename preserves the original extension for module heuristics
+#   (audio-transcription module uses extension to pick ffmpeg conversion path)
+#
+# Lifecycle:
+# - Created via POST /uploads
+# - Read via GET /uploads/{id} (metadata only — file content fetched by modules
+#   directly from the returned `path`)
+# - Deleted via DELETE /uploads/{id} or by GC after `uploads_ttl_hours`
+#   (GC implementation deferred to a future PR — the dir is small and self-
+#   limiting at `uploads_max_bytes` per upload anyway)
+#
+# Auth: gated by the same nginx bearer-token layer as the rest of the API.
+# No additional in-process auth — the daemon trusts that requests reaching it
+# have already been authenticated by the reverse proxy.
+
+
+_INVALID_FILENAME_CHARS = '/\\:\x00'
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Strip path separators and control chars from an uploaded filename.
+
+    Preserves the original extension. Falls back to "upload.bin" if the
+    sanitized name is empty.
+    """
+    cleaned = "".join(c for c in (filename or "") if c not in _INVALID_FILENAME_CHARS).strip()
+    cleaned = cleaned.lstrip(".")  # disallow leading-dot dotfiles
+    return cleaned or "upload.bin"
+
+
+@router.post("/uploads")
+async def create_upload(file: UploadFile = File(...)) -> dict:
+    """Accept a multipart file upload, store it under a job-scoped tempdir.
+
+    Returns metadata the client can pass to POST /jobs as a local path input
+    (e.g. audio-transcription's `audio_path`). The file is written to disk in
+    chunks to bound memory usage; oversized uploads are rejected mid-stream
+    once they exceed `uploads_max_bytes`.
+
+    Response: { upload_id, path, filename, size_bytes, mime_type, created_at }
+    """
+    settings = get_settings()
+    uploads_dir = settings.uploads_dir
+    if uploads_dir is None:
+        raise HTTPException(status_code=500, detail="uploads_dir is not configured")
+
+    upload_id = uuid.uuid4().hex
+    upload_dir = Path(uploads_dir) / upload_id
+    try:
+        upload_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        # Vanishingly unlikely UUID collision — surface as 500.
+        raise HTTPException(status_code=500, detail="upload_id collision")
+
+    filename = _sanitize_filename(file.filename or "")
+    target_path = upload_dir / filename
+
+    max_bytes = settings.uploads_max_bytes
+    bytes_written = 0
+    chunk_size = 1024 * 1024  # 1 MB
+
+    try:
+        with target_path.open("wb") as out:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"upload exceeds max size of {max_bytes} bytes",
+                    )
+                out.write(chunk)
+    except HTTPException:
+        # Cleanup partial upload before re-raising.
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"upload failed: {exc}") from exc
+    finally:
+        await file.close()
+
+    return {
+        "upload_id": upload_id,
+        "path": str(target_path),
+        "filename": filename,
+        "size_bytes": bytes_written,
+        "mime_type": file.content_type or "application/octet-stream",
+        "created_at": int(time.time()),
+    }
+
+
+def _resolve_upload_dir(upload_id: str) -> Path:
+    """Resolve and validate an upload_id to its directory.
+
+    Rejects path-traversal attempts and IDs that aren't valid UUIDs.
+    Raises HTTPException(404) for missing uploads.
+    """
+    settings = get_settings()
+    uploads_dir = settings.uploads_dir
+    if uploads_dir is None:
+        raise HTTPException(status_code=500, detail="uploads_dir is not configured")
+
+    # Strict UUID4 hex format — eliminates path traversal and exotic IDs.
+    try:
+        uuid.UUID(hex=upload_id, version=4)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid upload_id")
+
+    upload_dir = Path(uploads_dir) / upload_id
+    if not upload_dir.is_dir():
+        raise HTTPException(status_code=404, detail="upload not found")
+
+    return upload_dir
+
+
+@router.get("/uploads/{upload_id}")
+async def get_upload(upload_id: str) -> dict:
+    """Get metadata for an uploaded file.
+
+    Does NOT stream the file content — that's only consumed by modules via
+    direct filesystem read using the `path` returned from POST /uploads.
+    """
+    upload_dir = _resolve_upload_dir(upload_id)
+
+    files = [p for p in upload_dir.iterdir() if p.is_file()]
+    if not files:
+        raise HTTPException(status_code=404, detail="upload directory is empty")
+
+    target = files[0]
+    stat = target.stat()
+    return {
+        "upload_id": upload_id,
+        "path": str(target),
+        "filename": target.name,
+        "size_bytes": stat.st_size,
+        "created_at": int(stat.st_ctime),
+    }
+
+
+@router.delete("/uploads/{upload_id}")
+async def delete_upload(upload_id: str) -> dict:
+    """Delete an uploaded file and its containing directory.
+
+    Idempotent — calling on a missing upload still returns success.
+    """
+    settings = get_settings()
+    uploads_dir = settings.uploads_dir
+    if uploads_dir is None:
+        raise HTTPException(status_code=500, detail="uploads_dir is not configured")
+
+    try:
+        uuid.UUID(hex=upload_id, version=4)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=400, detail="invalid upload_id")
+
+    upload_dir = Path(uploads_dir) / upload_id
+    if upload_dir.is_dir():
+        shutil.rmtree(upload_dir, ignore_errors=True)
+
+    return {"status": "deleted", "upload_id": upload_id}

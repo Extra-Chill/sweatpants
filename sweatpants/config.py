@@ -34,8 +34,16 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/var/lib/sweatpants")
     modules_dir: Path = Path("/var/lib/sweatpants/modules")
     exports_dir: Optional[Path] = None
+    uploads_dir: Optional[Path] = None
     db_path: Path = Path("/var/lib/sweatpants/sweatpants.db")
     modules_config_path: Path = Path("/var/lib/sweatpants/modules.yaml")
+
+    # Maximum size in bytes for a single uploaded artifact.
+    # 500 MB default — accommodates ~5h of compressed audio at 192 kbps.
+    uploads_max_bytes: int = 500 * 1024 * 1024
+    # Age in hours after which an unclaimed upload may be garbage-collected.
+    # An upload is "claimed" once a job is created that references it.
+    uploads_ttl_hours: int = 24
 
     api_host: str = "127.0.0.1"
     api_port: int = 8420
@@ -57,6 +65,8 @@ class Settings(BaseSettings):
         """
         if self.exports_dir is None:
             self.exports_dir = self.data_dir / "exports"
+        if self.uploads_dir is None:
+            self.uploads_dir = self.data_dir / "uploads"
 
     def ensure_directories(self) -> None:
         """Create required directories if they don't exist."""
@@ -64,6 +74,8 @@ class Settings(BaseSettings):
         self.modules_dir.mkdir(parents=True, exist_ok=True)
         if self.exports_dir is not None:
             self.exports_dir.mkdir(parents=True, exist_ok=True)
+        if self.uploads_dir is not None:
+            self.uploads_dir.mkdir(parents=True, exist_ok=True)
 
     def load_modules_config(self) -> Optional[ModulesConfig]:
         """Load module sources configuration from modules.yaml."""
