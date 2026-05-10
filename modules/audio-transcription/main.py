@@ -15,8 +15,11 @@ import json
 import os
 import subprocess
 import tempfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import urlparse
 
 import numpy as np
 import whisper
@@ -38,6 +41,8 @@ class AudioTranscription(Module):
             settings: hf_token (for diarization)
         """
         audio_path = Path(inputs["audio_path"]) if inputs.get("audio_path") else None
+        audio_url = inputs.get("audio_url")
+        audio_url_auth_header = inputs.get("audio_url_auth_header")
         output_dir = Path(inputs["output_dir"])
         model_size = inputs.get("model", "base")
         language = inputs.get("language", "en")
@@ -48,6 +53,9 @@ class AudioTranscription(Module):
         remove_fillers = inputs.get("remove_fillers", False)
         text_input = inputs.get("text_input")
         hf_token = settings.get("hf_token") or os.environ.get("HF_TOKEN")
+
+        # Track downloaded source for cleanup at end of job
+        downloaded_audio_path: Path | None = None
         
         # Standalone text processing mode
         if text_input:
@@ -94,13 +102,23 @@ class AudioTranscription(Module):
             
             return
         
-        if audio_path is None:
-            raise ValueError("audio_path is required unless using text_input mode")
-        
+        if audio_url is None and audio_path is None:
+            raise ValueError(
+                "One of audio_url, audio_path, or text_input is required"
+            )
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # If audio_url is provided, fetch it and use it as the effective audio_path.
+        # audio_url takes precedence over audio_path when both are set.
+        if audio_url:
+            downloaded_audio_path = await self._download_audio_url(
+                audio_url, output_dir, audio_url_auth_header
+            )
+            audio_path = downloaded_audio_path
+
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
-        
-        output_dir.mkdir(parents=True, exist_ok=True)
         
         # Generate output filename
         base_name = audio_path.stem
@@ -271,6 +289,117 @@ class AudioTranscription(Module):
         if wav_path != audio_path and wav_path.suffix == ".wav":
             wav_path.unlink(missing_ok=True)
             await self.log("Temporary files cleaned up")
+
+        # Cleanup downloaded source file (if audio_url mode was used)
+        if downloaded_audio_path is not None and downloaded_audio_path.exists():
+            downloaded_audio_path.unlink(missing_ok=True)
+            await self.log(f"Downloaded source file cleaned up: {downloaded_audio_path.name}")
+
+    async def _download_audio_url(
+        self,
+        audio_url: str,
+        output_dir: Path,
+        auth_header: str | None = None,
+    ) -> Path:
+        """Download audio from a URL into output_dir.
+
+        Streams the response to disk in chunks and logs progress every 5 MB.
+        Uses urllib (stdlib only). 30s connect timeout, 5 min read timeout.
+
+        Args:
+            audio_url: HTTP(S) URL to fetch.
+            output_dir: Directory to write the downloaded file into.
+            auth_header: Optional Authorization header value (e.g. "Bearer xxx").
+
+        Returns:
+            Path to the downloaded file.
+
+        Raises:
+            RuntimeError: If the download fails or yields a 0-byte file.
+        """
+        parsed = urlparse(audio_url)
+        if parsed.scheme not in ("http", "https"):
+            raise RuntimeError(
+                f"audio_url must be http or https, got: {parsed.scheme!r}"
+            )
+
+        # Derive a filename from the URL path; fall back to a generic name.
+        url_basename = os.path.basename(parsed.path) or "audio_url_download"
+        # Strip query strings already excluded by parsed.path; sanitize separators.
+        url_basename = url_basename.replace("/", "_").replace("\\", "_")
+        if not url_basename:
+            url_basename = "audio_url_download"
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = output_dir / url_basename
+
+        await self.log(f"Downloading audio from URL: {audio_url}")
+
+        def _do_download() -> int:
+            req = urllib.request.Request(audio_url)
+            if auth_header:
+                req.add_header("Authorization", auth_header)
+            # 30s connect / 5 min read; urllib uses a single timeout for both.
+            # Use the larger value so reads on slow links still succeed.
+            with urllib.request.urlopen(req, timeout=300) as response:
+                if getattr(response, "status", 200) >= 400:
+                    raise RuntimeError(
+                        f"HTTP {response.status} fetching audio_url: {audio_url}"
+                    )
+                bytes_written = 0
+                chunk_size = 1024 * 1024  # 1 MB read chunks
+                next_log_threshold = 5 * 1024 * 1024  # log every 5 MB
+                with open(dest_path, "wb") as out:
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                        bytes_written += len(chunk)
+                        if bytes_written >= next_log_threshold:
+                            # Schedule a log emit on the main loop without
+                            # blocking the worker thread.
+                            asyncio.run_coroutine_threadsafe(
+                                self.log(
+                                    f"Downloaded {bytes_written / (1024 * 1024):.1f} MB..."
+                                ),
+                                loop,
+                            )
+                            next_log_threshold += 5 * 1024 * 1024
+            return bytes_written
+
+        loop = asyncio.get_running_loop()
+        try:
+            bytes_written = await asyncio.to_thread(_do_download)
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(
+                f"HTTP {e.code} fetching audio_url ({audio_url}): {e.reason}"
+            ) from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(
+                f"Network error fetching audio_url ({audio_url}): {e.reason}"
+            ) from e
+        except TimeoutError as e:
+            raise RuntimeError(
+                f"Timeout fetching audio_url ({audio_url}): {e}"
+            ) from e
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to download audio_url ({audio_url}): {e}"
+            ) from e
+
+        if not dest_path.exists() or dest_path.stat().st_size == 0:
+            # Best-effort cleanup of empty/missing artifact before raising.
+            dest_path.unlink(missing_ok=True)
+            raise RuntimeError(
+                f"Downloaded file is empty or missing: {audio_url}"
+            )
+
+        await self.log(
+            f"Download complete: {dest_path.name} "
+            f"({bytes_written / (1024 * 1024):.1f} MB)"
+        )
+        return dest_path
 
     async def _convert_to_wav(self, audio_path: Path) -> Path | None:
         """Convert audio file to WAV format if needed."""

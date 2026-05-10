@@ -9,7 +9,19 @@
       "id": "audio_path",
       "type": "text",
       "required": false,
-      "description": "Path to audio file (mp3, m4a, wav, etc.). Required unless using text_input mode."
+      "description": "Path to audio file (mp3, m4a, wav, etc.). Provide audio_url, audio_path, or text_input."
+    },
+    {
+      "id": "audio_url",
+      "type": "text",
+      "required": false,
+      "description": "HTTP(S) URL to fetch audio from. Downloaded into output_dir then transcribed. Takes precedence over audio_path when both are set."
+    },
+    {
+      "id": "audio_url_auth_header",
+      "type": "text",
+      "required": false,
+      "description": "Optional Authorization header value sent when fetching audio_url (e.g. 'Bearer xxxxx')."
     },
     {
       "id": "output_dir",
