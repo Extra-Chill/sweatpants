@@ -2,11 +2,11 @@
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Any, Optional
 
 import yaml
-from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class ModuleSourceConfig(BaseModel):
@@ -60,12 +60,17 @@ class Settings(BaseSettings):
 
     # CORS allowlist for browser-direct callers (e.g. a React tab POSTing
     # audio uploads from an end-user's browser). Empty default = no CORS
-    # middleware registered, identical to the pre-CORS behavior. Configure
-    # via comma-separated env var, e.g.:
-    #   SWEATPANTS_API_CORS_ALLOW_ORIGINS=https://app.example.com,https://other.example.com
-    # `pydantic-settings` parses comma-separated strings into list[str]
-    # automatically.
-    api_cors_allow_origins: list[str] = []
+    # middleware registered, identical to the pre-CORS behavior.
+    #
+    # `Annotated[..., NoDecode]` opts out of pydantic-settings' default JSON
+    # decoding for list-typed env vars, so the `_split_csv` validator below
+    # sees the raw string and can split on commas. Without NoDecode the
+    # daemon crashes on startup because pydantic-settings tries
+    # `json.loads("https://a.com,https://b.com")` before any validator runs.
+    #
+    # Accepted env var format:
+    #   SWEATPANTS_API_CORS_ALLOW_ORIGINS=https://a.example.com,https://b.example.com
+    api_cors_allow_origins: Annotated[list[str], NoDecode] = []
     # Whether to allow credentials (cookies, HTTP auth) on cross-origin
     # requests. Default false because signed tokens travel via
     # `Authorization: Bearer …`, not cookies, and `allow_credentials=true`
@@ -74,6 +79,25 @@ class Settings(BaseSettings):
     api_cors_allow_credentials: bool = False
     # Browser cache duration for preflight responses, in seconds.
     api_cors_max_age: int = 86400
+
+    @field_validator("api_cors_allow_origins", mode="before")
+    @classmethod
+    def _split_csv(cls, v: Any) -> Any:
+        """Split a comma-separated env-var string into a list of origins.
+
+        Combined with `Annotated[..., NoDecode]` on the field declaration,
+        this turns `SWEATPANTS_API_CORS_ALLOW_ORIGINS=https://a.com,https://b.com`
+        into `["https://a.com", "https://b.com"]`. Plain `list[str]` defaults
+        in pydantic-settings expect a JSON array, which is awkward to write
+        in a `.env` file because of quoting.
+
+        An already-decoded list (e.g. set from Python code, or a JSON array
+        the operator chose to use anyway after stripping NoDecode) passes
+        through unchanged.
+        """
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return v
 
     proxy_url: str = ""  # Full URL: http://user:pass@host:port
     proxy_rotation_url: str = ""  # URL pattern for sticky sessions: http://user-session-{session}:pass@host:port
