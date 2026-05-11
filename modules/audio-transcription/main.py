@@ -11,14 +11,19 @@ if not hasattr(torchaudio, 'list_audio_backends'):
     torchaudio.list_audio_backends = lambda: ['soundfile']
 
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
 import os
+import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlparse
 
 import numpy as np
@@ -52,6 +57,11 @@ class AudioTranscription(Module):
         skip_transcription = inputs.get("skip_transcription", False)
         remove_fillers = inputs.get("remove_fillers", False)
         text_input = inputs.get("text_input")
+        callback_url = inputs.get("callback_url")
+        callback_secret = inputs.get("callback_secret")
+        callback_issuer = inputs.get("callback_issuer", "sweatpants")
+        callback_user_id = inputs.get("callback_user_id")
+        callback_cleanup = bool(inputs.get("callback_cleanup_on_success", True))
         hf_token = settings.get("hf_token") or os.environ.get("HF_TOKEN")
 
         # Track downloaded source for cleanup at end of job
@@ -262,7 +272,7 @@ class AudioTranscription(Module):
             if remove_fillers and combined_txt_clean:
                 output_files["combined_txt_clean"] = str(combined_txt_clean)
             
-            yield {
+            final_result = {
                 "status": "complete",
                 "files": output_files,
                 "content": self._read_inline_content(output_files),
@@ -272,9 +282,10 @@ class AudioTranscription(Module):
                     "duration": result["segments"][-1]["end"] if result["segments"] else 0,
                 },
             }
+            yield final_result
         else:
             await self.save_checkpoint(stage="complete", has_speakers=False)
-            
+
             output_files = {
                 "transcription": str(whisper_txt),
                 "transcription_json": str(whisper_json),
@@ -282,7 +293,7 @@ class AudioTranscription(Module):
                 "transcription_vtt": str(whisper_vtt),
             }
 
-            yield {
+            final_result = {
                 "status": "complete",
                 "files": output_files,
                 "content": self._read_inline_content(output_files),
@@ -292,16 +303,41 @@ class AudioTranscription(Module):
                     "duration": result["segments"][-1]["end"] if result["segments"] else 0,
                 },
             }
+            yield final_result
 
-        # Cleanup temp file
+        # Fire the completion callback (if configured) BEFORE local cleanup so
+        # the receiver gets the file paths in case it wants to ACK before we
+        # delete them. The callback is best-effort: a failure is logged but
+        # never propagated to the job result.
+        callback_acknowledged = False
+        if callback_url:
+            callback_acknowledged = await self._fire_completion_callback(
+                callback_url=callback_url,
+                callback_secret=callback_secret,
+                callback_issuer=callback_issuer,
+                callback_user_id=callback_user_id,
+                payload=final_result,
+            )
+
+        # Cleanup ffmpeg-converted wav file (always — it's a derived artifact).
         if wav_path != audio_path and wav_path.suffix == ".wav":
             wav_path.unlink(missing_ok=True)
-            await self.log("Temporary files cleaned up")
+            await self.log("Temporary wav cleaned up")
 
-        # Cleanup downloaded source file (if audio_url mode was used)
+        # Cleanup downloaded source file from audio_url mode (always — same).
         if downloaded_audio_path is not None and downloaded_audio_path.exists():
             downloaded_audio_path.unlink(missing_ok=True)
             await self.log(f"Downloaded source file cleaned up: {downloaded_audio_path.name}")
+
+        # Cleanup the upload dir + the entire output dir IF the consumer ACKed
+        # the callback (meaning they captured the transcript and don't need
+        # the files anymore). Skipped when callback_cleanup_on_success=false
+        # so callers can opt out.
+        if callback_acknowledged and callback_cleanup:
+            await self._cleanup_after_callback(
+                audio_path=audio_path,
+                output_dir=output_dir,
+            )
 
     # Maximum number of bytes to inline per text artifact in the result payload.
     # Files larger than this are still produced on disk and listed in `files`,
@@ -351,6 +387,189 @@ class AudioTranscription(Module):
                 # Best-effort inlining; failure to inline is not a job failure.
                 continue
         return content
+
+    # -----------------------------------------------------------------
+    # Completion callback
+    # -----------------------------------------------------------------
+
+    @staticmethod
+    def _b64url_encode(b: bytes) -> str:
+        """Encode bytes as base64url without padding (matches sweatpants core)."""
+        return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
+
+    @classmethod
+    def _sign_callback_token(
+        cls,
+        secret: str,
+        issuer: str,
+        sub: Optional[int],
+        job_id: str,
+        ttl_seconds: int = 300,
+    ) -> str:
+        """Mint a sweatpants-compatible signed bearer token.
+
+        Format matches sweatpants core's `_verify_signed_token` (see
+        `sweatpants/api/auth.py`) and the WP-native-auth verifier, so a
+        receiving site can validate the callback with the existing
+        `wp_native_auth_verify_external_token` primitive against the same
+        shared HMAC secret.
+
+        Token shape: <base64url(payload_json)>.<base64url(hmac_sha256(secret, payload_b64))>
+
+        Payload claims:
+          iss     issuer string (default "sweatpants")
+          sub     subject — typically the WP user_id who submitted the job
+          scope   "callback:write" — a fixed scope so receivers can gate
+          exp     unix expiry, default now + 300s (callbacks should be near-instant)
+          jti     unique token id, populated with the job_id for trace
+        """
+        payload = {
+            "iss": issuer,
+            "sub": int(sub) if sub is not None else 0,
+            "scope": "callback:write",
+            "exp": int(time.time()) + ttl_seconds,
+            "jti": job_id,
+        }
+        payload_json = json.dumps(payload, separators=(",", ":"))
+        payload_b64 = cls._b64url_encode(payload_json.encode("utf-8"))
+        sig = hmac.new(secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest()
+        sig_b64 = cls._b64url_encode(sig)
+        return f"{payload_b64}.{sig_b64}"
+
+    async def _fire_completion_callback(
+        self,
+        callback_url: str,
+        callback_secret: Optional[str],
+        callback_issuer: str,
+        callback_user_id: Optional[int],
+        payload: dict[str, Any],
+    ) -> bool:
+        """POST the completion payload to the configured callback URL.
+
+        Best-effort delivery: a single POST with a 30s timeout. Failures are
+        logged at WARNING level but never propagated — the transcript
+        remains available via `GET /jobs/{id}/results` if the receiver wants
+        to retry on their own schedule.
+
+        When `callback_secret` is set, the request carries an
+        `Authorization: Bearer <signed_token>` header with the same
+        HMAC-SHA256 shape sweatpants core uses for its own signed tokens,
+        so the receiver can use one verifier for both auth and callbacks.
+
+        Args:
+            callback_url: HTTPS endpoint to POST to.
+            callback_secret: Shared HMAC secret. None disables signing.
+            callback_issuer: `iss` claim in the signed payload.
+            callback_user_id: `sub` claim — the WP user the callback represents.
+            payload: The final result dict already yielded to the scheduler.
+
+        Returns:
+            True iff the receiver returned a 2xx status. Callers may use
+            this signal to gate cleanup of source/output files.
+        """
+        # Augment the body with the job_id so receivers can correlate.
+        # `self.job_id` is populated by the sweatpants Module base class.
+        body_dict = {
+            "job_id": getattr(self, "job_id", None),
+            **payload,
+        }
+        body_bytes = json.dumps(body_dict, separators=(",", ":")).encode("utf-8")
+
+        headers = {"Content-Type": "application/json"}
+        if callback_secret:
+            token = self._sign_callback_token(
+                secret=callback_secret,
+                issuer=callback_issuer,
+                sub=callback_user_id,
+                job_id=str(body_dict.get("job_id") or "unknown"),
+            )
+            headers["Authorization"] = f"Bearer {token}"
+
+        await self.log(f"Firing completion callback → {callback_url}")
+
+        request = urllib.request.Request(
+            callback_url,
+            data=body_bytes,
+            headers=headers,
+            method="POST",
+        )
+
+        def _do_request() -> tuple[int, str]:
+            try:
+                with urllib.request.urlopen(request, timeout=30) as resp:
+                    return resp.status, ""
+            except urllib.error.HTTPError as exc:
+                # Read at most 1 KB of the error body for the log.
+                detail = exc.read(1024).decode("utf-8", errors="replace") if exc.fp else ""
+                return exc.code, detail
+
+        try:
+            status, detail = await asyncio.to_thread(_do_request)
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            await self.log(
+                f"Completion callback failed (network): {exc}",
+                level="WARNING",
+            )
+            return False
+        except Exception as exc:  # pragma: no cover — defensive
+            await self.log(
+                f"Completion callback failed (unexpected): {exc!r}",
+                level="WARNING",
+            )
+            return False
+
+        if 200 <= status < 300:
+            await self.log(f"Completion callback acknowledged (HTTP {status})")
+            return True
+
+        await self.log(
+            f"Completion callback returned HTTP {status}: {detail[:200]}",
+            level="WARNING",
+        )
+        return False
+
+    async def _cleanup_after_callback(
+        self,
+        audio_path: Optional[Path],
+        output_dir: Path,
+    ) -> None:
+        """Delete the upload dir + the entire output dir after a successful callback.
+
+        Only invoked when `callback_cleanup_on_success` is true AND the
+        callback POST returned 2xx. The transcript content is already in the
+        receiver's hands by that point; on-disk copies are redundant and
+        eating storage on the worker host.
+
+        Failures during cleanup are logged but never raised — the job has
+        already succeeded as far as the scheduler is concerned.
+        """
+        # Delete the entire upload directory (the upload_id-scoped tempdir
+        # created by POST /uploads). If the audio came from a local path
+        # outside that layout we leave it alone — the convention is
+        # "sweatpants owns what sweatpants created."
+        try:
+            if audio_path is not None:
+                upload_dir = audio_path.parent
+                # Only delete if it's a uuid-hex dir under .../uploads/
+                if (
+                    upload_dir.parent.name == "uploads"
+                    and len(upload_dir.name) == 32
+                    and all(c in "0123456789abcdef" for c in upload_dir.name)
+                ):
+                    shutil.rmtree(upload_dir, ignore_errors=True)
+                    await self.log(f"Upload dir cleaned up: {upload_dir}")
+        except Exception as exc:
+            await self.log(f"Upload cleanup failed: {exc!r}", level="WARNING")
+
+        # Delete the output directory wholesale. The receiver acked the
+        # callback containing the inlined content, so the files on disk are
+        # no longer needed.
+        try:
+            if output_dir.is_dir():
+                shutil.rmtree(output_dir, ignore_errors=True)
+                await self.log(f"Output dir cleaned up: {output_dir}")
+        except Exception as exc:
+            await self.log(f"Output cleanup failed: {exc!r}", level="WARNING")
 
     async def _download_audio_url(
         self,

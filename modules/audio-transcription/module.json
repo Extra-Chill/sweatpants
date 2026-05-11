@@ -83,6 +83,38 @@
       "type": "text",
       "required": false,
       "description": "Path to existing transcript file to process (skips audio transcription, useful for re-processing with filler removal)"
+    },
+    {
+      "id": "callback_url",
+      "type": "text",
+      "required": false,
+      "description": "HTTPS URL the module POSTs the completion result to. The body is JSON with the same shape the scheduler yielded (status, files, content, stats). Best-effort: failures are logged but never propagate to the job result. When set with callback_secret, the request carries an Authorization: Bearer header signed with HMAC-SHA256."
+    },
+    {
+      "id": "callback_secret",
+      "type": "text",
+      "required": false,
+      "description": "Shared HMAC-SHA256 secret used to sign the callback request. Matches the sweatpants core signed-token format so receivers can validate with the same verifier (e.g. wp_native_auth_verify_external_token)."
+    },
+    {
+      "id": "callback_issuer",
+      "type": "text",
+      "required": false,
+      "default": "sweatpants",
+      "description": "Opaque issuer string included as the `iss` claim in the signed callback token. Receivers may log or filter on this."
+    },
+    {
+      "id": "callback_user_id",
+      "type": "integer",
+      "required": false,
+      "description": "Subject claim (`sub`) in the signed callback token — typically the receiving WordPress user_id who submitted the job."
+    },
+    {
+      "id": "callback_cleanup_on_success",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "When the callback POST returns 2xx, delete the upload dir (source audio) and the output dir (transcript files) since the receiver now owns the content. Set to false to retain files."
     }
   ],
   "settings": [

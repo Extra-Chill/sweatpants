@@ -144,8 +144,66 @@ sweatpants run audio-transcription \
 | `skip_transcription` | boolean | No | false | Skip Whisper (use existing whisper.json) |
 | `min_speakers` | integer | No | 2 | Minimum speakers for diarization |
 | `max_speakers` | integer | No | 10 | Maximum speakers for diarization |
+| `callback_url` | text | No | - | HTTPS URL the module POSTs the completion result to. See "Completion Callback" below. |
+| `callback_secret` | text | No | - | Shared HMAC-SHA256 secret used to sign the callback request. |
+| `callback_issuer` | text | No | sweatpants | Opaque issuer string included as the `iss` claim in the signed callback token. |
+| `callback_user_id` | integer | No | - | Subject claim (`sub`) — typically the receiving WordPress user_id. |
+| `callback_cleanup_on_success` | boolean | No | true | When callback returns 2xx, delete upload dir + output dir. |
 
 *Exactly one of `audio_url`, `audio_path`, or `text_input` must be provided.
+
+## Completion Callback
+
+For consumers that want fire-and-forget transcription (e.g. a browser tab
+that doesn't want to poll for hours), set `callback_url` to an HTTPS
+endpoint and the module will POST the completion result to that URL once
+Whisper + diarization + filler removal are done.
+
+**Request body** is JSON, identical to the result yielded to the
+sweatpants scheduler:
+
+```json
+{
+  "job_id": "<sweatpants job uuid>",
+  "status": "complete",
+  "files": { "transcription": "...", "transcription_json": "...", ... },
+  "content": { "transcription": "And so, my fellow Americans...", ... },
+  "stats": { "segments": 349, "speakers": null, "duration": 1380.0 }
+}
+```
+
+**Signed authentication** (when `callback_secret` is set): the request
+carries `Authorization: Bearer <signed_token>` where the token uses the
+same HMAC-SHA256-over-base64url-payload format sweatpants core uses for
+its own auth tokens. Receivers can validate it with the same verifier
+they use for auth (e.g. WordPress + `wp-native-auth`'s
+`wp_native_auth_verify_external_token`).
+
+Token payload claims:
+
+```json
+{
+  "iss": "<callback_issuer>",
+  "sub": <callback_user_id>,
+  "scope": "callback:write",
+  "exp": <unix expiry, now + 300>,
+  "jti": "<job_id>"
+}
+```
+
+**Best-effort delivery**: a single POST with a 30-second timeout. Failures
+are logged at WARNING level but never propagate to the job result — the
+transcript remains available at `GET /jobs/{id}/results` for the
+receiver to retry on their own schedule.
+
+**Cleanup**: when `callback_cleanup_on_success=true` (the default) and
+the receiver returns 2xx, the module deletes:
+
+- The upload directory (`<uploads_dir>/<upload_id>/`) — source audio
+- The output directory (`<output_dir>`) — transcript files
+
+This keeps disk usage bounded for headless-compute pipelines where the
+receiver becomes the new source of truth after the callback.
 
 ## Settings
 
