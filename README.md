@@ -201,6 +201,9 @@ Environment variables (prefix `SWEATPANTS_`):
 | `API_PORT` | `8420` | API port |
 | `API_AUTH_TOKEN` | *(unset)* | Master token. Full access to every endpoint. |
 | `API_SIGNED_TOKEN_SECRET` | *(unset)* | Shared secret for HMAC-SHA256 signed tokens. Trusted issuers (e.g. WordPress plugins) mint short-lived scoped tokens by signing a JSON payload with this secret. |
+| `API_CORS_ALLOW_ORIGINS` | *(empty)* | Comma-separated list of origins allowed to make cross-origin requests (e.g. `https://app.example.com,https://other.example.com`). Empty = no CORS middleware registered (server-to-server only). Required for browser-direct callers. |
+| `API_CORS_ALLOW_CREDENTIALS` | `false` | Whether to allow cookies / HTTP auth on cross-origin requests. Leave false for bearer-token flows. |
+| `API_CORS_MAX_AGE` | `86400` | Browser cache duration (seconds) for preflight responses. |
 | `PROXY_URL` | *(unset)* | Rotating proxy URL |
 | `PROXY_ROTATION_URL` | *(unset)* | Sticky session URL pattern |
 | `BROWSER_POOL_SIZE` | `3` | Concurrent browser instances |

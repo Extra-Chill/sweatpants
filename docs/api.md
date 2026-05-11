@@ -66,6 +66,33 @@ Browsers can't send Authorization headers on WS handshakes. The
 `/jobs/{id}/logs/stream` endpoint accepts the token via a `?token=<bearer>`
 query parameter instead. Same validation, same scope rules (`jobs:read`).
 
+### CORS (cross-origin browser callers)
+
+Sweatpants is designed primarily for server-to-server calls (CLI, ops
+scripts, trusted WordPress plugins making `wp_remote_*` requests). When
+a browser-side caller needs to hit sweatpants directly — e.g. a React
+tab in a WordPress site that mints a scoped HMAC token and POSTs audio
+uploads from the user's browser — CORS must be configured.
+
+Set `SWEATPANTS_API_CORS_ALLOW_ORIGINS` to a comma-separated allowlist:
+
+```
+SWEATPANTS_API_CORS_ALLOW_ORIGINS=https://studio.extrachill.com,https://extrachill.com
+```
+
+Behavior:
+
+- **Empty allowlist (default)**: no CORS middleware registered. Preflight
+  requests get 405. Server-to-server callers unaffected.
+- **Non-empty allowlist**: FastAPI's `CORSMiddleware` is wired. Preflight
+  responses include `Access-Control-Allow-Origin`, `-Methods`, `-Headers`,
+  and `-Max-Age`. Disallowed origins get no `Access-Control-Allow-Origin`
+  header on the response, which browsers correctly reject.
+- **Wildcard (`*`) is supported but not recommended.** Signed bearer
+  tokens carry user identity inside the JWT-shaped payload — opening
+  CORS to `*` lets any domain harvest tokens and replay them inside
+  their TTL. Use a strict allowlist whenever possible.
+
 ## Status
 
 ### GET /status

@@ -58,6 +58,23 @@ class Settings(BaseSettings):
     # only the master token is accepted in that case.
     api_signed_token_secret: str = ""
 
+    # CORS allowlist for browser-direct callers (e.g. a React tab POSTing
+    # audio uploads from an end-user's browser). Empty default = no CORS
+    # middleware registered, identical to the pre-CORS behavior. Configure
+    # via comma-separated env var, e.g.:
+    #   SWEATPANTS_API_CORS_ALLOW_ORIGINS=https://app.example.com,https://other.example.com
+    # `pydantic-settings` parses comma-separated strings into list[str]
+    # automatically.
+    api_cors_allow_origins: list[str] = []
+    # Whether to allow credentials (cookies, HTTP auth) on cross-origin
+    # requests. Default false because signed tokens travel via
+    # `Authorization: Bearer …`, not cookies, and `allow_credentials=true`
+    # combined with a list-of-origins allowlist is what you want for
+    # cookie-bearing flows specifically.
+    api_cors_allow_credentials: bool = False
+    # Browser cache duration for preflight responses, in seconds.
+    api_cors_max_age: int = 86400
+
     proxy_url: str = ""  # Full URL: http://user:pass@host:port
     proxy_rotation_url: str = ""  # URL pattern for sticky sessions: http://user-session-{session}:pass@host:port
 
