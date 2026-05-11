@@ -152,6 +152,7 @@ class AudioTranscription(Module):
 
         # Step 2: Transcribe with Whisper (or load existing)
         whisper_txt = output_base.with_suffix(".whisper.txt")
+        whisper_clean_txt = output_base.with_suffix(".whisper.clean.txt")
         whisper_json = output_base.with_suffix(".whisper.json")
         whisper_srt = output_base.with_suffix(".whisper.srt")
         whisper_vtt = output_base.with_suffix(".whisper.vtt")
@@ -189,6 +190,17 @@ class AudioTranscription(Module):
             
             await self.log(f"Whisper transcription complete")
         
+        # Step 2.5: Filler removal on the raw whisper output
+        # Produces whisper.clean.txt regardless of whether diarization runs.
+        # This is the decoupled filler-removal pass — every transcript can be
+        # cleaned, not just speaker-labeled ones. The diarize branch below
+        # produces an additional speakers.clean.txt when both options are on.
+        if remove_fillers:
+            cleaned_text = self._remove_fillers(result["text"])
+            with open(whisper_clean_txt, "w") as f:
+                f.write(cleaned_text)
+            await self.log(f"Filler-removed transcript saved: {whisper_clean_txt.name}")
+        
         await self.save_checkpoint(
             stage="transcribed",
             text_file=str(whisper_txt),
@@ -224,13 +236,23 @@ class AudioTranscription(Module):
                 except Exception as e:
                     await self.log(f"Diarization failed: {e}", level="ERROR")
 
-        # Step 4: Combine transcription with speaker labels
+        # Step 4: Combine transcription with speaker labels (when diarization ran)
         if diarization_data:
             combined = self._combine_with_speakers(result["segments"], diarization_data)
             combined_txt = output_base.with_suffix(".speakers.txt")
             combined_json = output_base.with_suffix(".speakers.json")
             
-            # Apply filler removal if requested
+            # Always write the speaker-labeled transcript when we have one.
+            with open(combined_txt, "w") as f:
+                f.write(self._format_speaker_text(combined))
+            with open(combined_json, "w") as f:
+                json.dump(combined, f, indent=2)
+            await self.log(f"Speaker-separated transcription saved")
+            
+            # When filler removal is also on, produce the speakers.clean.txt
+            # variant alongside. The whisper.clean.txt was already written
+            # above (decoupled filler-removal pass); this adds the
+            # speaker-labeled clean version for a fully-processed output.
             combined_txt_clean = None
             if remove_fillers:
                 combined_clean = []
@@ -238,25 +260,11 @@ class AudioTranscription(Module):
                     seg_clean = seg.copy()
                     seg_clean["text"] = self._remove_fillers(seg["text"])
                     combined_clean.append(seg_clean)
-                
-                # Write clean version
                 combined_txt_clean = output_base.with_suffix(".speakers.clean.txt")
                 with open(combined_txt_clean, "w") as f:
                     f.write(self._format_speaker_text(combined_clean))
-                
-                # Also write original
-                with open(combined_txt, "w") as f:
-                    f.write(self._format_speaker_text(combined))
-                
-                await self.log(f"Clean transcript (fillers removed) saved")
-            else:
-                with open(combined_txt, "w") as f:
-                    f.write(self._format_speaker_text(combined))
+                await self.log(f"Speaker-labeled filler-removed transcript saved")
             
-            with open(combined_json, "w") as f:
-                json.dump(combined, f, indent=2)
-            
-            await self.log(f"Speaker-separated transcription saved")
             await self.save_checkpoint(stage="complete", has_speakers=True)
             
             output_files = {
@@ -268,7 +276,8 @@ class AudioTranscription(Module):
                 "combined_txt": str(combined_txt),
                 "combined_json": str(combined_json),
             }
-            
+            if remove_fillers:
+                output_files["transcription_clean"] = str(whisper_clean_txt)
             if remove_fillers and combined_txt_clean:
                 output_files["combined_txt_clean"] = str(combined_txt_clean)
             
@@ -284,6 +293,8 @@ class AudioTranscription(Module):
             }
             yield final_result
         else:
+            # No diarization. Surface the raw whisper outputs and the
+            # filler-removed variant if it was produced above.
             await self.save_checkpoint(stage="complete", has_speakers=False)
 
             output_files = {
@@ -292,6 +303,8 @@ class AudioTranscription(Module):
                 "transcription_srt": str(whisper_srt),
                 "transcription_vtt": str(whisper_vtt),
             }
+            if remove_fillers:
+                output_files["transcription_clean"] = str(whisper_clean_txt)
 
             final_result = {
                 "status": "complete",
