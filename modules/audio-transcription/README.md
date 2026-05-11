@@ -225,7 +225,14 @@ receiver becomes the new source of truth after the callback.
 - `{base}.diarization.json` - Raw PyAnnote diarization data
 
 ### Clean Files (if remove_fillers=true)
-- `{base}.speakers.clean.txt` - Filler-free speaker transcript
+- `{base}.whisper.clean.txt` - Filler-free plain transcript (always produced when `remove_fillers=true`, independent of `diarize`)
+- `{base}.speakers.clean.txt` - Filler-free speaker-labeled transcript (only when both `diarize=true` AND `remove_fillers=true`)
+
+The three options (`model`, `diarize`, `remove_fillers`) are fully
+independent. Filler removal runs as a post-processing pass over the
+raw Whisper output regardless of whether speaker diarization also ran,
+so you can ask for `(remove_fillers=true, diarize=false)` and get back
+a clean monologue transcript without the diarization overhead.
 
 ### Inline Content in Job Results
 
