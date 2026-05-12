@@ -10,6 +10,31 @@ A Sweatpants module for transcribing audio files with optional speaker identific
 - **Multiple Outputs**: TXT, JSON, SRT, VTT formats
 - **Standalone Text Processing**: Clean existing transcripts without re-transcribing
 
+## Accepted Input Formats
+
+The module accepts **any audio or video container ffmpeg can decode**.
+The first pipeline step (`_convert_to_wav`) runs ffmpeg to produce a
+16 kHz mono PCM WAV before passing to Whisper, so consumers don't need
+to pre-convert or restrict to a specific extension.
+
+Confirmed working in production:
+
+| Source | Container |
+|---|---|
+| iPhone Voice Memos | `.m4a` |
+| Android Voice Recorder | `.m4a`, `.aac`, `.amr` |
+| WhatsApp / Signal voice notes | `.opus`, `.ogg` |
+| Browser MediaRecorder | `.webm` |
+| Phone video (audio track extracted by ffmpeg) | `.mp4`, `.mov`, `.mkv` |
+| Studio recordings | `.wav`, `.flac` |
+| Streaming captures | `.mp3` |
+
+ffmpeg returns a clear error for unsupported inputs; the module
+surfaces that error via `_convert_to_wav()` and the job ends as
+`failed` with the ffmpeg detail in the result envelope. Consumers
+should therefore NOT maintain their own extension allowlist — let
+ffmpeg be the gatekeeper.
+
 ## Installation
 
 ```bash
