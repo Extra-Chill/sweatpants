@@ -11,15 +11,11 @@ if not hasattr(torchaudio, 'list_audio_backends'):
     torchaudio.list_audio_backends = lambda: ['soundfile']
 
 import asyncio
-import base64
-import hashlib
-import hmac
 import json
 import os
 import shutil
 import subprocess
 import tempfile
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -321,15 +317,17 @@ class AudioTranscription(Module):
         # Fire the completion callback (if configured) BEFORE local cleanup so
         # the receiver gets the file paths in case it wants to ACK before we
         # delete them. The callback is best-effort: a failure is logged but
-        # never propagated to the job result.
+        # never propagated to the job result. Signing + delivery + job_id
+        # injection live in the core SDK primitive (sweatpants#26) — this
+        # module no longer hand-rolls the HMAC POST.
         callback_acknowledged = False
         if callback_url:
-            callback_acknowledged = await self._fire_completion_callback(
-                callback_url=callback_url,
-                callback_secret=callback_secret,
-                callback_issuer=callback_issuer,
-                callback_user_id=callback_user_id,
-                payload=final_result,
+            callback_acknowledged = await self.send_signed_callback(
+                callback_url,
+                final_result,
+                callback_secret,
+                issuer=callback_issuer,
+                user_id=callback_user_id,
             )
 
         # Cleanup ffmpeg-converted wav file (always — it's a derived artifact).
@@ -400,146 +398,6 @@ class AudioTranscription(Module):
                 # Best-effort inlining; failure to inline is not a job failure.
                 continue
         return content
-
-    # -----------------------------------------------------------------
-    # Completion callback
-    # -----------------------------------------------------------------
-
-    @staticmethod
-    def _b64url_encode(b: bytes) -> str:
-        """Encode bytes as base64url without padding (matches sweatpants core)."""
-        return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
-
-    @classmethod
-    def _sign_callback_token(
-        cls,
-        secret: str,
-        issuer: str,
-        sub: Optional[int],
-        job_id: str,
-        ttl_seconds: int = 300,
-    ) -> str:
-        """Mint a sweatpants-compatible signed bearer token.
-
-        Format matches sweatpants core's `_verify_signed_token` (see
-        `sweatpants/api/auth.py`) and the WP-native-auth verifier, so a
-        receiving site can validate the callback with the existing
-        `wp_native_auth_verify_external_token` primitive against the same
-        shared HMAC secret.
-
-        Token shape: <base64url(payload_json)>.<base64url(hmac_sha256(secret, payload_b64))>
-
-        Payload claims:
-          iss     issuer string (default "sweatpants")
-          sub     subject — typically the WP user_id who submitted the job
-          scope   "callback:write" — a fixed scope so receivers can gate
-          exp     unix expiry, default now + 300s (callbacks should be near-instant)
-          jti     unique token id, populated with the job_id for trace
-        """
-        payload = {
-            "iss": issuer,
-            "sub": int(sub) if sub is not None else 0,
-            "scope": "callback:write",
-            "exp": int(time.time()) + ttl_seconds,
-            "jti": job_id,
-        }
-        payload_json = json.dumps(payload, separators=(",", ":"))
-        payload_b64 = cls._b64url_encode(payload_json.encode("utf-8"))
-        sig = hmac.new(secret.encode("utf-8"), payload_b64.encode("ascii"), hashlib.sha256).digest()
-        sig_b64 = cls._b64url_encode(sig)
-        return f"{payload_b64}.{sig_b64}"
-
-    async def _fire_completion_callback(
-        self,
-        callback_url: str,
-        callback_secret: Optional[str],
-        callback_issuer: str,
-        callback_user_id: Optional[int],
-        payload: dict[str, Any],
-    ) -> bool:
-        """POST the completion payload to the configured callback URL.
-
-        Best-effort delivery: a single POST with a 30s timeout. Failures are
-        logged at WARNING level but never propagated — the transcript
-        remains available via `GET /jobs/{id}/results` if the receiver wants
-        to retry on their own schedule.
-
-        When `callback_secret` is set, the request carries an
-        `Authorization: Bearer <signed_token>` header with the same
-        HMAC-SHA256 shape sweatpants core uses for its own signed tokens,
-        so the receiver can use one verifier for both auth and callbacks.
-
-        Args:
-            callback_url: HTTPS endpoint to POST to.
-            callback_secret: Shared HMAC secret. None disables signing.
-            callback_issuer: `iss` claim in the signed payload.
-            callback_user_id: `sub` claim — the WP user the callback represents.
-            payload: The final result dict already yielded to the scheduler.
-
-        Returns:
-            True iff the receiver returned a 2xx status. Callers may use
-            this signal to gate cleanup of source/output files.
-        """
-        # Augment the body with the job_id so receivers can correlate.
-        # `self.job_id` is populated by the sweatpants Module base class.
-        body_dict = {
-            "job_id": getattr(self, "job_id", None),
-            **payload,
-        }
-        body_bytes = json.dumps(body_dict, separators=(",", ":")).encode("utf-8")
-
-        headers = {"Content-Type": "application/json"}
-        if callback_secret:
-            token = self._sign_callback_token(
-                secret=callback_secret,
-                issuer=callback_issuer,
-                sub=callback_user_id,
-                job_id=str(body_dict.get("job_id") or "unknown"),
-            )
-            headers["Authorization"] = f"Bearer {token}"
-
-        await self.log(f"Firing completion callback → {callback_url}")
-
-        request = urllib.request.Request(
-            callback_url,
-            data=body_bytes,
-            headers=headers,
-            method="POST",
-        )
-
-        def _do_request() -> tuple[int, str]:
-            try:
-                with urllib.request.urlopen(request, timeout=30) as resp:
-                    return resp.status, ""
-            except urllib.error.HTTPError as exc:
-                # Read at most 1 KB of the error body for the log.
-                detail = exc.read(1024).decode("utf-8", errors="replace") if exc.fp else ""
-                return exc.code, detail
-
-        try:
-            status, detail = await asyncio.to_thread(_do_request)
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-            await self.log(
-                f"Completion callback failed (network): {exc}",
-                level="WARNING",
-            )
-            return False
-        except Exception as exc:  # pragma: no cover — defensive
-            await self.log(
-                f"Completion callback failed (unexpected): {exc!r}",
-                level="WARNING",
-            )
-            return False
-
-        if 200 <= status < 300:
-            await self.log(f"Completion callback acknowledged (HTTP {status})")
-            return True
-
-        await self.log(
-            f"Completion callback returned HTTP {status}: {detail[:200]}",
-            level="WARNING",
-        )
-        return False
 
     async def _cleanup_after_callback(
         self,

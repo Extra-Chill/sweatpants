@@ -1,0 +1,80 @@
+{
+  "id": "mediavine-reports",
+  "name": "Mediavine Revenue Reports",
+  "version": "0.1.0",
+  "description": "Automates per-period Mediavine revenue export via pooled, proxied Playwright. Logs into the Mediavine reporting dashboard, pulls per-URL revenue rows for each requested period, and POSTs them back to a receiver (e.g. extrachill-analytics) via an HMAC-signed callback.",
+  "entrypoint": "main.py",
+  "inputs": [
+    {
+      "id": "periods",
+      "type": "json",
+      "required": false,
+      "description": "List of {period, period_start, period_end} objects to iterate, each YYYY-MM-DD. Takes precedence over period_start/period_end. Example: [{\"period\":\"2022\",\"period_start\":\"2022-01-01\",\"period_end\":\"2022-12-31\"}]. Use this for a multi-bucket backfill (e.g. yearly 2022-2026)."
+    },
+    {
+      "id": "period_start",
+      "type": "text",
+      "required": false,
+      "description": "Start of a single reporting period (YYYY-MM-DD). Used when `periods` is not supplied. Paired with period_end."
+    },
+    {
+      "id": "period_end",
+      "type": "text",
+      "required": false,
+      "description": "End of a single reporting period (YYYY-MM-DD). Used when `periods` is not supplied. Paired with period_start."
+    },
+    {
+      "id": "period",
+      "type": "text",
+      "required": false,
+      "description": "Optional label for the single-period case (e.g. \"2023-09\"). Defaults to \"<period_start>..<period_end>\"."
+    },
+    {
+      "id": "report_type",
+      "type": "text",
+      "required": false,
+      "default": "pages",
+      "description": "Which Mediavine report to pull. Currently only \"pages\" (per-URL revenue) is implemented."
+    },
+    {
+      "id": "callback_url",
+      "type": "text",
+      "required": false,
+      "description": "HTTPS URL the module POSTs the completed revenue rows to. Body is JSON: {job_id, report_type, periods:[{period, rows:[...]}], status}. Best-effort: failures are logged but never propagate to the job result. When set with callback_secret, the request carries an Authorization: Bearer header signed with HMAC-SHA256."
+    },
+    {
+      "id": "callback_secret",
+      "type": "text",
+      "required": false,
+      "description": "Shared HMAC-SHA256 secret used to sign the callback request. Matches the sweatpants core signed-token format so receivers validate with the same verifier (e.g. wp_native_auth_verify_external_token)."
+    },
+    {
+      "id": "callback_issuer",
+      "type": "text",
+      "required": false,
+      "default": "sweatpants",
+      "description": "Opaque issuer string included as the `iss` claim in the signed callback token."
+    },
+    {
+      "id": "callback_user_id",
+      "type": "integer",
+      "required": false,
+      "description": "Subject claim (`sub`) in the signed callback token — typically the receiving WordPress user_id who submitted the job."
+    }
+  ],
+  "settings": [
+    {
+      "id": "mediavine_email",
+      "type": "secret",
+      "required": true,
+      "description": "Mediavine reporting dashboard login email. Stays on sweatpants — never sent to the WP side."
+    },
+    {
+      "id": "mediavine_password",
+      "type": "secret",
+      "required": true,
+      "description": "Mediavine reporting dashboard login password. Stays on sweatpants — never sent to the WP side."
+    }
+  ],
+  "capabilities": ["browser"]
+}
