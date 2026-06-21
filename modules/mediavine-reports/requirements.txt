@@ -1,0 +1,9 @@
+# No module-specific runtime dependencies.
+#
+# This module uses only the Python standard library (csv, io, json, asyncio)
+# plus sweatpants core primitives:
+#   - sweatpants.Module               (base class + send_signed_callback, sweatpants#26)
+#   - sweatpants.get_browser          (pooled, proxied Playwright Chromium)
+#
+# Playwright itself is a core sweatpants dependency (see sweatpants/pyproject.toml),
+# so nothing extra is required here.
