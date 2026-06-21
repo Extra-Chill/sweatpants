@@ -3,6 +3,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, Optional, TYPE_CHECKING
 
+from sweatpants.sdk.callback import send_signed_callback as _send_signed_callback
+
 if TYPE_CHECKING:
     from sweatpants.engine.job_scheduler import JobContext
 
@@ -77,6 +79,57 @@ class Module(ABC):
         """
         if checkpoint:
             self._checkpoint = checkpoint
+
+    async def send_signed_callback(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        secret: Optional[str],
+        *,
+        issuer: str = "sweatpants",
+        user_id: Optional[int] = None,
+    ) -> bool:
+        """POST a completion payload to an external receiver with a signed token.
+
+        Thin wrapper over the core SDK primitive
+        (:func:`sweatpants.sdk.callback.send_signed_callback`) that wires in
+        this job's logger and job_id automatically. When ``secret`` is set the
+        request carries an ``Authorization: Bearer <token>`` header whose
+        HMAC-SHA256 format round-trips with sweatpants core's
+        ``_verify_signed_token`` and the WordPress
+        ``wp_native_auth_verify_external_token`` verifier.
+
+        The job_id is injected into the body under ``job_id`` (without
+        overwriting an existing key) so receivers can correlate, and is also
+        used as the token ``jti`` claim for trace.
+
+        Best-effort: delivery failures are logged but NEVER propagated to the
+        job result.
+
+        Args:
+            url: HTTP(S) endpoint to POST to.
+            payload: JSON-serializable body.
+            secret: Shared HMAC secret. ``None``/empty disables signing.
+            issuer: ``iss`` claim in the signed token.
+            user_id: ``sub`` claim — the user the callback represents.
+
+        Returns:
+            ``True`` iff the receiver returned a 2xx status.
+        """
+        job_id = getattr(self, "job_id", None)
+        body = dict(payload)
+        if job_id is not None and "job_id" not in body:
+            body["job_id"] = job_id
+
+        return await _send_signed_callback(
+            url,
+            body,
+            secret,
+            issuer=issuer,
+            user_id=user_id,
+            job_id=str(job_id) if job_id is not None else None,
+            log=self.log,
+        )
 
     @abstractmethod
     async def run(
