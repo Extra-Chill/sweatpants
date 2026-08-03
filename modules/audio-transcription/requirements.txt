@@ -1,6 +1,23 @@
+# PyTorch is pinned to the CPU build on purpose.
+#
+# The sweatpants host has no GPU (Virtio VGA only, no nvidia driver, no
+# /dev/nvidia*). PyPI's default `torch` wheel is the CUDA build, which pulls
+# ~2.7G of `nvidia-*` CUDA runtime libraries that can never execute here.
+# Because `module_loader.py` runs `pip install -r requirements.txt` on every
+# module install/sync/reload, a bare `torch>=2.0.0` silently reinstalls all of
+# it each time.
+#
+# The exact `+cpu` pins are what force the CPU build: `--extra-index-url` alone
+# is not enough, since pip would still be free to resolve the plain version
+# from PyPI. Bump both pins together when upgrading Torch.
+#
+# Whisper runs on CPU regardless — its only Triton/CUDA code paths are gated
+# behind `if x.is_cuda:` in `whisper/timing.py`, so nothing is lost.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
 openai-whisper>=20231117
 pyannote.audio>=3.1.0
-torch>=2.0.0
-torchaudio>=2.0.0
+torch==2.11.0+cpu
+torchaudio==2.11.0+cpu
 transformers>=4.35.0
 huggingface-hub>=0.19.0
