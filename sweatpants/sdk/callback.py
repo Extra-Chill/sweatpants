@@ -47,6 +47,25 @@ DEFAULT_CALLBACK_TTL_SECONDS = 300
 # Best-effort single POST timeout (seconds).
 DEFAULT_CALLBACK_TIMEOUT_SECONDS = 30
 
+# User-Agent sent with every outbound callback.
+#
+# urllib defaults to ``Python-urllib/3.x``, which is a well-known automated
+# client signature. Edge protection layers in front of receivers routinely
+# block it outright: a real completion callback to a Cloudflare-fronted
+# WordPress receiver was rejected with HTTP 403 "error code: 1010"
+# (browser-signature ban) before it ever reached the origin server, while the
+# job itself reported success. See Extra-Chill/sweatpants-modules#12.
+#
+# This is deliberately an HONEST identifier rather than a spoofed browser
+# string. Callbacks are server-to-server traffic between two systems that
+# already share an HMAC secret — they should be attributable in the
+# receiver's logs and allow-listable by an explicit WAF rule, not disguised
+# as a desktop browser. ``sweatpants/proxy/client.py`` spoofs a browser UA
+# because it scrapes sites that fingerprint clients; that rationale does not
+# apply here and copying it would make legitimate callback traffic
+# indistinguishable from scraping.
+CALLBACK_USER_AGENT = "sweatpants-callback/1.0 (+https://github.com/Extra-Chill/sweatpants)"
+
 
 def _b64url_encode(raw: bytes) -> str:
     """Encode bytes as base64url WITHOUT padding (matches sweatpants core)."""
@@ -168,7 +187,11 @@ async def send_signed_callback(
         await _emit(f"Signed callback skipped (unserializable payload): {exc!r}", "WARNING")
         return False
 
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": CALLBACK_USER_AGENT,
+        "Accept": "application/json",
+    }
     if secret:
         try:
             token = sign_callback_token(

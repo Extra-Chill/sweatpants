@@ -17,6 +17,7 @@ import pytest
 from sweatpants.api.auth import _verify_signed_token
 from sweatpants.sdk.callback import (
     CALLBACK_SCOPE,
+    CALLBACK_USER_AGENT,
     send_signed_callback,
     sign_callback_token,
 )
@@ -102,6 +103,72 @@ async def test_send_signed_callback_best_effort_on_unreachable_host():
 
     assert ok is False
     assert any(level == "WARNING" for _, level in logs)
+
+
+@pytest.mark.asyncio
+async def test_send_signed_callback_sets_identifying_user_agent(monkeypatch):
+    """Outbound callbacks must identify themselves.
+
+    urllib defaults to ``Python-urllib/3.x``, which edge protection layers
+    block on sight. A real completion callback to a Cloudflare-fronted
+    receiver was rejected with HTTP 403 "error code: 1010" before reaching
+    the origin, while the job still reported success — see
+    Extra-Chill/sweatpants-modules#12.
+
+    This pins the header contract so the regression cannot return silently.
+    """
+    captured: dict[str, str] = {}
+
+    class _FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc_info):
+            return False
+
+    def _fake_urlopen(request, timeout=None):
+        # urllib normalizes header names to title case via add_header().
+        captured.update(request.headers)
+        return _FakeResponse()
+
+    monkeypatch.setattr(
+        "sweatpants.sdk.callback.urllib.request.urlopen", _fake_urlopen
+    )
+
+    ok = await send_signed_callback(
+        "https://example.test/callback",
+        {"hello": "world"},
+        SECRET,
+        user_id=7,
+        job_id="ua-check",
+    )
+
+    assert ok is True
+
+    normalized = {key.lower(): value for key, value in captured.items()}
+
+    assert normalized.get("User-agent".lower()) == CALLBACK_USER_AGENT
+    assert "python-urllib" not in normalized.get("User-agent".lower(), "").lower()
+    assert normalized.get("Content-type".lower()) == "application/json"
+    # The signed bearer token must still be present alongside the new headers.
+    assert normalized.get("Authorization".lower(), "").startswith("Bearer ")
+
+
+def test_callback_user_agent_is_honest_not_a_spoofed_browser():
+    """The callback UA must be attributable, not disguised as a browser.
+
+    ``sweatpants/proxy/client.py`` spoofs a browser UA because it scrapes
+    sites that fingerprint clients. Callbacks are server-to-server traffic
+    between two hosts that already share an HMAC secret, so they should be
+    identifiable in receiver logs and allow-listable by an explicit WAF
+    rule — not indistinguishable from scraping.
+    """
+    assert "sweatpants" in CALLBACK_USER_AGENT.lower()
+    assert "mozilla" not in CALLBACK_USER_AGENT.lower()
+    assert "chrome" not in CALLBACK_USER_AGENT.lower()
+    assert "safari" not in CALLBACK_USER_AGENT.lower()
 
 
 @pytest.mark.asyncio
