@@ -8,6 +8,7 @@ Open-source automation modules for [Sweatpants](https://github.com/Extra-Chill/s
 |--------|-------------|
 | [agent-ping-webhook](agent-ping-webhook/) | Receive Data Machine Agent Ping webhooks and route them to AI agents via Kimaki CLI |
 | [audio-transcription](audio-transcription/) | Transcribe audio files with speaker diarization using Whisper and PyAnnote |
+| [font-builder](font-builder/) | Turn a letter-sheet image into OTF and TTF fonts with a PNG preview |
 
 ## Installation
 
