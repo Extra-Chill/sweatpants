@@ -17,11 +17,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pipeline import segment, build_font, render_preview
 
 
+USER_AGENT = 'Sweatpants/1.0 (+https://github.com/Extra-Chill/sweatpants)'
+
+
 def download_image(url, directory, auth_header=None):
     """Stream HTTP(S) input to a unique temporary path; never overwrite outputs."""
     if urlparse(url).scheme not in ('http', 'https'):
         raise ValueError('image_url must use http or https')
-    request = Request(url)
+    request = Request(url, headers={'User-Agent': USER_AGENT})
     if auth_header:
         request.add_header('Authorization', auth_header)
     path = None

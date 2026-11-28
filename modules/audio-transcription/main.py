@@ -15,9 +15,9 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlparse
@@ -27,6 +27,10 @@ import whisper
 from pyannote.audio import Pipeline
 
 from sweatpants import Module
+
+# The daemon loads entrypoints by file path, not as packages.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from audio_download import open_audio_url
 
 
 class AudioTranscription(Module):
@@ -483,12 +487,8 @@ class AudioTranscription(Module):
         await self.log(f"Downloading audio from URL: {audio_url}")
 
         def _do_download() -> int:
-            req = urllib.request.Request(audio_url)
-            if auth_header:
-                req.add_header("Authorization", auth_header)
-            # 30s connect / 5 min read; urllib uses a single timeout for both.
-            # Use the larger value so reads on slow links still succeed.
-            with urllib.request.urlopen(req, timeout=300) as response:
+            # Use a 5 min timeout so reads on slow links still succeed.
+            with open_audio_url(audio_url, auth_header) as response:
                 if getattr(response, "status", 200) >= 400:
                     raise RuntimeError(
                         f"HTTP {response.status} fetching audio_url: {audio_url}"

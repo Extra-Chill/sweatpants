@@ -75,6 +75,30 @@ def test_missing_source(adapter, tmp_path):
         asyncio.run(run())
 
 
+@pytest.mark.parametrize('auth_header', [None, 'Bearer test-token'])
+def test_download_headers(adapter, monkeypatch, tmp_path, auth_header):
+    from io import BytesIO
+
+    calls = []
+
+    def urlopen(request, timeout):
+        calls.append((request, timeout))
+        return BytesIO(b'image data')
+
+    monkeypatch.setattr(adapter, 'urlopen', urlopen)
+    path = adapter.download_image('https://cdn.example/image.png', tmp_path, auth_header)
+
+    assert path.read_bytes() == b'image data'
+    request, timeout = calls[0]
+    assert len(calls) == 1
+    assert request.full_url == 'https://cdn.example/image.png'
+    assert request.get_header('User-agent') == (
+        'Sweatpants/1.0 (+https://github.com/Extra-Chill/sweatpants)'
+    )
+    assert request.get_header('Authorization') == auth_header
+    assert timeout == 300
+
+
 def test_reject_non_http_download(adapter, tmp_path):
     with pytest.raises(ValueError, match='http or https'):
         adapter.download_image('file:///etc/passwd', tmp_path)
