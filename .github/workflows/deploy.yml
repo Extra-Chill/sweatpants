@@ -1,0 +1,67 @@
+name: Deploy
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: 'Released commit/ref (empty = main)'
+        type: string
+        default: ''
+      dry_run:
+        description: 'Plan only; no production changes'
+        type: boolean
+        default: true
+      all_modules:
+        description: 'Install every public module, not only changed modules'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: deploy-sweatpants
+  cancel-in-progress: false
+env:
+  HOMEBOY_VERSION: '0.459.0'
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.DEPLOY_AUTOMATION == 'enabled')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      # Keep deployment code/config trusted even if a manual target ref is older.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Resolve plan
+        id: plan
+        env:
+          REQUEST_REF: ${{ inputs.sha || github.event.workflow_run.head_sha || 'main' }}
+          REQUEST_DRY_RUN: ${{ inputs.dry_run }}
+          EVENT: ${{ github.event_name }}
+          ALL_MODULES: ${{ inputs.all_modules }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse --verify --end-of-options "${REQUEST_REF}^{commit}")
+          dry=true
+          if [[ "$EVENT" != workflow_dispatch || "$REQUEST_DRY_RUN" == false ]]; then dry=false; fi
+          all=false
+          [[ "$ALL_MODULES" != true ]] || all=true
+          echo "helpers=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "dry=$dry" >> "$GITHUB_OUTPUT"
+          echo "all=$all" >> "$GITHUB_OUTPUT"
+      - name: Deploy through pinned Homeboy SSH
+        uses: Extra-Chill/homeboy-action@v2
+        with:
+          version: ${{ env.HOMEBOY_VERSION }}
+          config-dir: deploy/homeboy
+          auto-setup: 'false'
+          commands: >-
+            ssh chubes-net --as-server -- "set -eu; work=\$(mktemp -d); trap 'rm -rf -- \"\$work\"' EXIT; git clone -q https://github.com/Extra-Chill/sweatpants.git \"\$work/repo\"; git -C \"\$work/repo\" checkout -q --detach '${{ steps.plan.outputs.helpers }}'; bash \"\$work/repo/deploy/scripts/deploy.sh\" '${{ steps.plan.outputs.sha }}' '${{ steps.plan.outputs.dry }}' '${{ steps.plan.outputs.all }}'"
+          ssh-key: ${{ secrets.CHUBES_DEPLOY_SSH_KEY }}
+          ssh-known-hosts: ${{ secrets.CHUBES_DEPLOY_KNOWN_HOSTS }}
+          ssh-require-known-hosts: 'true'

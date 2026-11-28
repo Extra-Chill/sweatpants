@@ -1,0 +1,22 @@
+[Unit]
+Description=Fleet Agent Ping Webhook
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fleet/agent-ping-webhook
+ExecStart=/usr/bin/python3 /opt/fleet/agent-ping-webhook/webhook.py
+Restart=always
+RestartSec=5
+
+# Environment
+EnvironmentFile=-/etc/fleet/agent-ping-webhook.env
+
+# Security
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/tmp
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,7 @@
+{
+  "id": "chubes-net",
+  "host": "178.156.237.104",
+  "user": "root",
+  "port": 22,
+  "identity_file": null
+}
