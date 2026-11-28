@@ -10,7 +10,8 @@ exec 9>/run/lock/sweatpants-deploy.lock
 flock -n 9
 # A temporary mirror permits a real diff on first deploy without mutating /opt.
 work=$(mktemp -d)
-trap 'rm -rf -- "$work"' EXIT
+build=$(mktemp -d)
+trap 'rm -rf -- "$work" "$build"' EXIT
 git clone -q --mirror https://github.com/Extra-Chill/sweatpants.git "$work/repo"
 git --git-dir="$work/repo" cat-file -e "$sha^{commit}"
 base=''
@@ -35,7 +36,12 @@ git -C "$src" fetch -q origin
 systemctl show sweatpants -p ExecStart --value | grep -F -- '/opt/sweatpants/venv/bin/sweatpants serve --host 127.0.0.1 --port 8420' >/dev/null
 systemctl show sweatpants -p EnvironmentFiles --value | grep -F '/opt/sweatpants/.env' >/dev/null
 git -C "$src" checkout -q --detach "$sha"
-/opt/sweatpants/venv/bin/python -m pip install "$src"
+# The venv belongs to the service user, which also installs module requirements
+# at runtime. Install as that user, from an export (not the checkout), so no
+# root-owned files land in the venv and no build output dirties the checkout.
+git -C "$src" archive "$sha" | tar -x -C "$build"
+chown -R sweatpants: "$build"
+runuser -u sweatpants -- /opt/sweatpants/venv/bin/python -m pip install --no-cache-dir "$build"
 systemctl restart sweatpants
 # Read credentials only inside this server-side process. Never put tokens in argv,
 # environment output, response logs or runner secrets. dotenv matches engine parsing.
