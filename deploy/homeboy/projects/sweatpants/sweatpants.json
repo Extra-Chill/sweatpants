@@ -1,0 +1,9 @@
+{
+  "domain": "sweatpants.chubes.net",
+  "server_id": "chubes-net",
+  "base_path": "/opt/sweatpants",
+  "components": [],
+  "api": {"enabled": false, "base_url": ""},
+  "remote_files": {"pinned_files": []},
+  "remote_logs": {"pinned_logs": []}
+}

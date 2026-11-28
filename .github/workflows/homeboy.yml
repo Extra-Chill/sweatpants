@@ -1,0 +1,66 @@
+name: Python CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install '.[dev]'
+      - run: python -m pytest tests -q
+      - run: bash deploy/scripts/test-changed-modules.sh
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.modules.outputs.modules }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: modules
+        shell: python
+        run: |
+          import json, os
+          from pathlib import Path
+          modules = []
+          for directory in sorted(Path('modules').iterdir()):
+              # Explicit exclusion: torch/whisper/pyannote are not suitable for
+              # hosted CI. This is a skip, NOT a passing audio test result.
+              if directory.name == 'audio-transcription':
+                  print('::notice::Skipping audio-transcription (heavy torch/whisper dependencies)')
+                  continue
+              if (directory / 'tests').is_dir():
+                  modules.append(directory.name)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('modules=' + json.dumps(modules) + '\n')
+  modules:
+    needs: discover
+    if: needs.discover.outputs.modules != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJSON(needs.discover.outputs.modules) }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install module dependencies then SDK from this checkout
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          set -euo pipefail
+          if [[ -f "modules/$MODULE/requirements.txt" ]]; then
+            python -m pip install -r "modules/$MODULE/requirements.txt"
+          fi
+          python -m pip install '.[dev]'
+      - name: Test module
+        working-directory: modules/${{ matrix.module }}
+        run: python -m pytest tests -q
