@@ -1,0 +1,129 @@
+{
+  "id": "audio-transcription",
+  "name": "Audio Transcription with Speaker Diarization",
+  "version": "1.0.0",
+  "description": "Transcribes audio files with speaker identification using Whisper and PyAnnote",
+  "entrypoint": "main.py",
+  "inputs": [
+    {
+      "id": "audio_path",
+      "type": "text",
+      "required": false,
+      "description": "Path to audio file (mp3, m4a, wav, etc.). Provide audio_url, audio_path, or text_input."
+    },
+    {
+      "id": "audio_url",
+      "type": "text",
+      "required": false,
+      "description": "HTTP(S) URL to fetch audio from. Downloaded into output_dir then transcribed. Takes precedence over audio_path when both are set."
+    },
+    {
+      "id": "audio_url_auth_header",
+      "type": "text",
+      "required": false,
+      "description": "Optional Authorization header value sent when fetching audio_url (e.g. 'Bearer xxxxx')."
+    },
+    {
+      "id": "output_dir",
+      "type": "text",
+      "required": true,
+      "description": "Directory to save output files"
+    },
+    {
+      "id": "model",
+      "type": "text",
+      "required": false,
+      "default": "base",
+      "description": "Whisper model size (tiny, base, small, medium, large)"
+    },
+    {
+      "id": "language",
+      "type": "text",
+      "required": false,
+      "default": "en",
+      "description": "Language code (e.g., 'en', 'auto' for auto-detect)"
+    },
+    {
+      "id": "diarize",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "Perform speaker diarization"
+    },
+    {
+      "id": "min_speakers",
+      "type": "integer",
+      "required": false,
+      "default": 2,
+      "description": "Minimum number of speakers (for diarization)"
+    },
+    {
+      "id": "max_speakers",
+      "type": "integer",
+      "required": false,
+      "default": 10,
+      "description": "Maximum number of speakers (for diarization)"
+    },
+    {
+      "id": "skip_transcription",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "Skip Whisper transcription if transcription files already exist (useful for re-running diarization only)"
+    },
+    {
+      "id": "remove_fillers",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "description": "Remove filler words (um, uh, like, you know, etc.) from transcript"
+    },
+    {
+      "id": "text_input",
+      "type": "text",
+      "required": false,
+      "description": "Path to existing transcript file to process (skips audio transcription, useful for re-processing with filler removal)"
+    },
+    {
+      "id": "callback_url",
+      "type": "text",
+      "required": false,
+      "description": "HTTPS URL the module POSTs the completion result to. The body is JSON with the same shape the scheduler yielded (status, files, content, stats). Best-effort: failures are logged but never propagate to the job result. When set with callback_secret, the request carries an Authorization: Bearer header signed with HMAC-SHA256."
+    },
+    {
+      "id": "callback_secret",
+      "type": "text",
+      "required": false,
+      "description": "Shared HMAC-SHA256 secret used to sign the callback request. Matches the sweatpants core signed-token format so receivers can validate with the same verifier (e.g. wp_native_auth_verify_external_token)."
+    },
+    {
+      "id": "callback_issuer",
+      "type": "text",
+      "required": false,
+      "default": "sweatpants",
+      "description": "Opaque issuer string included as the `iss` claim in the signed callback token. Receivers may log or filter on this."
+    },
+    {
+      "id": "callback_user_id",
+      "type": "integer",
+      "required": false,
+      "description": "Subject claim (`sub`) in the signed callback token — typically the receiving WordPress user_id who submitted the job."
+    },
+    {
+      "id": "callback_cleanup_on_success",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "When the callback POST returns 2xx, delete the upload dir (source audio) and the output dir (transcript files) since the receiver now owns the content. Set to false to retain files."
+    }
+  ],
+  "settings": [
+    {
+      "id": "hf_token",
+      "type": "secret",
+      "required": false,
+      "description": "Hugging Face access token (required for diarization)"
+    }
+  ],
+  "capabilities": []
+}

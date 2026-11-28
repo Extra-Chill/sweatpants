@@ -1,0 +1,121 @@
+{
+  "id": "font-builder",
+  "name": "Font Builder",
+  "version": "1.0.0",
+  "description": "Build OTF, TTF and a PNG preview from a letter-sheet image",
+  "entrypoint": "main.py",
+  "inputs": [
+    {
+      "id": "image_path",
+      "type": "text",
+      "required": false,
+      "description": "Local image path, including POST /uploads paths. One of image_path or image_url is required."
+    },
+    {
+      "id": "image_url",
+      "type": "text",
+      "required": false,
+      "description": "HTTP(S) source URL; takes precedence over image_path."
+    },
+    {
+      "id": "image_url_auth_header",
+      "type": "text",
+      "required": false,
+      "description": "Optional Authorization header value for image_url."
+    },
+    {
+      "id": "output_dir",
+      "type": "text",
+      "required": true,
+      "description": "Dedicated job output directory."
+    },
+    {
+      "id": "font_name",
+      "type": "text",
+      "required": true,
+      "description": "Family and full name; spaces stripped for PostScript name and filenames."
+    },
+    {
+      "id": "glyph_map",
+      "type": "text",
+      "required": true,
+      "description": "Reading-order glyph names: whitespace between names, newline or | between rows. X.alt creates salt and ss01 alternates."
+    },
+    {
+      "id": "threshold",
+      "type": "integer",
+      "required": false,
+      "description": "Threshold",
+      "default": 110
+    },
+    {
+      "id": "upscale",
+      "type": "integer",
+      "required": false,
+      "description": "Upscale",
+      "default": 8
+    },
+    {
+      "id": "cap_height",
+      "type": "integer",
+      "required": false,
+      "description": "Cap height",
+      "default": 700
+    },
+    {
+      "id": "units_per_em",
+      "type": "integer",
+      "required": false,
+      "description": "Units per em",
+      "default": 1000
+    },
+    {
+      "id": "sidebearing",
+      "type": "integer",
+      "required": false,
+      "description": "Sidebearing",
+      "default": 35
+    },
+    {
+      "id": "add_basic_punctuation",
+      "type": "boolean",
+      "required": false,
+      "description": "Synthesize missing period, comma, quotesingle, quoteright and space.",
+      "default": true
+    },
+    {
+      "id": "callback_url",
+      "type": "text",
+      "required": false,
+      "description": "HTTPS URL the module POSTs the completion result to. The body is JSON with the same shape the scheduler yielded (status, files, content, stats). Best-effort: failures are logged but never propagate to the job result. When set with callback_secret, the request carries an Authorization: Bearer header signed with HMAC-SHA256."
+    },
+    {
+      "id": "callback_secret",
+      "type": "text",
+      "required": false,
+      "description": "Shared HMAC-SHA256 secret used to sign the callback request. Matches the sweatpants core signed-token format so receivers can validate with the same verifier (e.g. wp_native_auth_verify_external_token)."
+    },
+    {
+      "id": "callback_issuer",
+      "type": "text",
+      "required": false,
+      "default": "sweatpants",
+      "description": "Opaque issuer string included as the `iss` claim in the signed callback token. Receivers may log or filter on this."
+    },
+    {
+      "id": "callback_user_id",
+      "type": "integer",
+      "required": false,
+      "description": "Subject claim (`sub`) in the signed callback token \u2014 typically the receiving WordPress user_id who submitted the job."
+    },
+    {
+      "id": "callback_cleanup_on_success",
+      "type": "boolean",
+      "required": false,
+      "default": true,
+      "description": "On callback 2xx, delete daemon-owned upload directory and output_dir. Set false to retain files."
+    }
+  ],
+  "settings": [],
+  "capabilities": []
+}
